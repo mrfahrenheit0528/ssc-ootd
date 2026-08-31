@@ -1,13 +1,15 @@
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Monitor, Users, History, Zap, CalendarDays, Settings, LogOut, ShieldCheck } from 'lucide-react'
+import { Monitor, Users, History, Zap, CalendarDays, Settings, LogOut, ShieldCheck, GraduationCap } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { SemesterProvider } from './contexts/SemesterContext'
 import ProtectedRoute from './components/ProtectedRoute'
-import LiveKiosk    from './pages/LiveKiosk'
-import OfficerRoster from './pages/OfficerRoster'
-import LogHistory   from './pages/LogHistory'
-import Calendar     from './pages/Calendar'
-import DayConfig    from './pages/DayConfig'
-import Login        from './pages/Login'
+import LiveKiosk       from './pages/LiveKiosk'
+import OfficerRoster  from './pages/OfficerRoster'
+import LogHistory     from './pages/LogHistory'
+import Calendar       from './pages/Calendar'
+import DayConfig      from './pages/DayConfig'
+import SemesterManager from './pages/SemesterManager'
+import Login          from './pages/Login'
 
 const PUBLIC_NAV = [
   { to: '/',         label: 'Live Kiosk',     icon: Monitor      },
@@ -17,7 +19,8 @@ const PUBLIC_NAV = [
 ]
 
 const ADMIN_NAV = [
-  { to: '/day-config', label: 'Day Config', icon: Settings },
+  { to: '/day-config',  label: 'Day Config',  icon: Settings       },
+  { to: '/semesters',   label: 'Semesters',   icon: GraduationCap  },
 ]
 
 function Sidebar() {
@@ -127,6 +130,9 @@ function AppShell() {
           <Route path="/day-config" element={
             <ProtectedRoute><DayConfig /></ProtectedRoute>
           } />
+          <Route path="/semesters" element={
+            <ProtectedRoute><SemesterManager /></ProtectedRoute>
+          } />
 
           {/* Auth */}
           <Route path="/login" element={<Login />} />
@@ -139,7 +145,9 @@ function AppShell() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppShell />
+      <SemesterProvider>
+        <AppShell />
+      </SemesterProvider>
     </AuthProvider>
   )
 }

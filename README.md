@@ -269,6 +269,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Semesters — public read, admin write
+    match /semesters/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Live scanner (NFC daemon writes from Admin SDK — bypasses rules)
     match /system_settings/live_scanner {
       allow read, write: if true;

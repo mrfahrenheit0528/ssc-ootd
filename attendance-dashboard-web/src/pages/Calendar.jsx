@@ -1,7 +1,8 @@
 // pages/Calendar.jsx
 // ------------------
 // Monthly attendance calendar. Public (read-only for all users).
-// Queries attendance_logs + day_config + officers for the selected month.
+// Supports viewing past semesters with historical officer snapshots.
+// Queries attendance_logs + day_config + officers/snapshot for the selected month.
 // Shows per-day status, attendance ratio, and a slide-in day detail drawer.
 
 import { useState, useEffect, useCallback } from 'react'
@@ -11,10 +12,14 @@ import {
 import {
   startOfMonth, endOfMonth, eachDayOfInterval,
   getDay, format, isSameDay, isToday, isBefore, startOfDay,
-  addMonths, subMonths,
+  addMonths, subMonths, parseISO,
 } from 'date-fns'
 import { db } from '../firebase'
-import { CalendarDays, ChevronLeft, ChevronRight, X, Clock, UserCircle } from 'lucide-react'
+import { useSemester } from '../contexts/SemesterContext'
+import {
+  CalendarDays, ChevronLeft, ChevronRight, X, Clock,
+  UserCircle, GraduationCap,
+} from 'lucide-react'
 
 // ── Day type config ──────────────────────────────────────────────────────────
 const DAY_TYPES = {
@@ -25,75 +30,83 @@ const DAY_TYPES = {
 }
 
 const STATUS_CONFIG = {
-  full:    { emoji: '✅', label: 'Full',     chipClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' },
-  partial: { emoji: '⚠️', label: 'Partial',  chipClass: 'bg-amber-500/15  text-amber-400  border-amber-500/20'  },
-  absent:  { emoji: '❌', label: 'No Data',  chipClass: 'bg-red-500/15    text-red-400    border-red-500/20'    },
-  holiday: { emoji: '🎉', label: 'Holiday',  chipClass: 'bg-sky-500/15    text-sky-400    border-sky-500/20'    },
+  full:       { emoji: '✅', label: 'Full',       chipClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' },
+  partial:    { emoji: '⚠️', label: 'Partial',    chipClass: 'bg-amber-500/15  text-amber-400  border-amber-500/20'  },
+  absent:     { emoji: '❌', label: 'No Data',    chipClass: 'bg-red-500/15    text-red-400    border-red-500/20'    },
+  holiday:    { emoji: '🎉', label: 'Holiday',    chipClass: 'bg-sky-500/15    text-sky-400    border-sky-500/20'    },
   no_classes: { emoji: '📚', label: 'No Classes', chipClass: 'bg-violet-500/15 text-violet-400 border-violet-500/20' },
   optional:   { emoji: '🔵', label: 'Optional',   chipClass: 'bg-amber-500/15  text-amber-400  border-amber-500/20'  },
-  future:  { emoji: '',   label: '',        chipClass: '' },
+  future:     { emoji: '',   label: '',          chipClass: '' },
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-function getDayStatus(dayDate, dayConfig, logs, requiredUids, defaultRequired) {
+// ── Priority resolution: specific date > weekly (if >= effectiveFrom) > builtin ──
+const BUILTIN_DEFAULTS = {
+  0: { type: 'no_classes', required_uids: [] },
+  1: { type: 'regular',    required_uids: [] },
+  2: { type: 'regular',    required_uids: [] },
+  3: { type: 'regular',    required_uids: [] },
+  4: { type: 'regular',    required_uids: [] },
+  5: { type: 'regular',    required_uids: [] },
+  6: { type: 'no_classes', required_uids: [] },
+}
+
+function resolveDay(dayDate, dayConfig, weeklySchedule, weeklyEffectiveFrom) {
   const ds = format(dayDate, 'yyyy-MM-dd')
-  const cfg = dayConfig[ds]
+  // 1. Specific date override
+  if (dayConfig[ds]) return dayConfig[ds]
+  // 2. Weekly recurring schedule (only if date >= effective_from)
+  if (weeklySchedule && weeklyEffectiveFrom && ds >= weeklyEffectiveFrom) {
+    const dow = getDay(dayDate)
+    if (weeklySchedule[dow]) return weeklySchedule[dow]
+  }
+  // 3. Built-in defaults (Sun/Sat = no_classes, others = regular)
+  return BUILTIN_DEFAULTS[getDay(dayDate)] ?? { type: 'regular', required_uids: [] }
+}
+
+function getDayStatus(dayDate, dayConfig, weeklySchedule, weeklyEffectiveFrom, logs) {
+  const cfg  = resolveDay(dayDate, dayConfig, weeklySchedule, weeklyEffectiveFrom)
   const type = cfg?.type ?? 'regular'
 
   if (type === 'holiday')    return 'holiday'
   if (type === 'no_classes') return 'no_classes'
   if (type === 'optional')   return 'optional'
 
-  if (isBefore(dayDate, startOfDay(new Date())) && !isToday(dayDate)) {
-    // Past day — show attendance ratio
-    const dayLogs   = logs.filter(l =>
-      l.type === 'CLOCK_IN' && l.timestamp?.toDate && isSameDay(l.timestamp.toDate(), dayDate)
-    )
-    const attended  = new Set(dayLogs.map(l => l.card_uid)).size
-    const required  = (cfg?.required_uids ?? defaultRequired).length
-    if (required === 0)    return attended > 0 ? 'full' : 'absent'
-    if (attended >= required) return 'full'
-    if (attended > 0)      return 'partial'
-    return 'absent'
-  }
+  const isFutureDay = !isToday(dayDate) && !isBefore(dayDate, startOfDay(new Date()))
+  if (isFutureDay) return 'future'
 
-  if (isToday(dayDate)) {
-    const todayLogs = logs.filter(l =>
-      l.type === 'CLOCK_IN' && l.timestamp?.toDate && isSameDay(l.timestamp.toDate(), dayDate)
-    )
-    const attended  = new Set(todayLogs.map(l => l.card_uid)).size
-    const required  = (cfg?.required_uids ?? defaultRequired).length
-    if (required === 0)    return attended > 0 ? 'full' : 'absent'
-    if (attended >= required) return 'full'
-    if (attended > 0)      return 'partial'
-    return 'absent'
-  }
-
-  return 'future'
-}
-
-function getAttendanceRatio(dayDate, dayConfig, logs, defaultRequired) {
-  const ds  = format(dayDate, 'yyyy-MM-dd')
-  const cfg = dayConfig[ds]
-  const dayLogs  = logs.filter(l =>
+  const dayLogs = logs.filter(l =>
     l.type === 'CLOCK_IN' && l.timestamp?.toDate && isSameDay(l.timestamp.toDate(), dayDate)
   )
   const attended = new Set(dayLogs.map(l => l.card_uid)).size
-  const required = (cfg?.required_uids ?? defaultRequired).length
+  const required = (cfg?.required_uids ?? []).length
+
+  if (required === 0) return attended > 0 ? 'full' : 'absent'
+  if (attended >= required) return 'full'
+  if (attended > 0)         return 'partial'
+  return 'absent'
+}
+
+function getAttendanceRatio(dayDate, dayConfig, weeklySchedule, weeklyEffectiveFrom, logs) {
+  const cfg     = resolveDay(dayDate, dayConfig, weeklySchedule, weeklyEffectiveFrom)
+  const dayLogs = logs.filter(l =>
+    l.type === 'CLOCK_IN' && l.timestamp?.toDate && isSameDay(l.timestamp.toDate(), dayDate)
+  )
+  const attended = new Set(dayLogs.map(l => l.card_uid)).size
+  const required = (cfg?.required_uids ?? []).length
   return { attended, required }
 }
 
 // ── Day Cell ─────────────────────────────────────────────────────────────────
-function DayCell({ date, dayConfig, logs, defaultRequired, onClick, isCurrentMonth }) {
+function DayCell({ date, dayConfig, weeklySchedule, weeklyEffectiveFrom, logs, onClick, isCurrentMonth }) {
   if (!isCurrentMonth) {
     return <div className="min-h-[80px] rounded-xl opacity-20" />
   }
 
-  const status = getDayStatus(date, dayConfig, logs, [], defaultRequired)
+  const status = getDayStatus(date, dayConfig, weeklySchedule, weeklyEffectiveFrom, logs)
   const sc     = STATUS_CONFIG[status]
-  const { attended, required } = getAttendanceRatio(date, dayConfig, logs, defaultRequired)
+  const { attended, required } = getAttendanceRatio(date, dayConfig, weeklySchedule, weeklyEffectiveFrom, logs)
   const ds     = format(date, 'yyyy-MM-dd')
-  const cfg    = dayConfig[ds]
+  const cfg    = resolveDay(date, dayConfig, weeklySchedule, weeklyEffectiveFrom)
   const isPast = isBefore(date, startOfDay(new Date()))
   const today  = isToday(date)
 
@@ -135,9 +148,8 @@ function DayCell({ date, dayConfig, logs, defaultRequired, onClick, isCurrentMon
 }
 
 // ── Day Detail Drawer ─────────────────────────────────────────────────────────
-function DayDrawer({ date, dayConfig, logs, officers, defaultRequired, onClose }) {
-  const ds       = format(date, 'yyyy-MM-dd')
-  const cfg      = dayConfig[ds]
+function DayDrawer({ date, dayConfig, weeklySchedule, weeklyEffectiveFrom, logs, officers, onClose }) {
+  const cfg      = resolveDay(date, dayConfig, weeklySchedule, weeklyEffectiveFrom)
   const type     = cfg?.type ?? 'regular'
   const dtConfig = DAY_TYPES[type]
 
@@ -145,10 +157,8 @@ function DayDrawer({ date, dayConfig, logs, officers, defaultRequired, onClose }
   const clockIns = dayLogs.filter(l => l.type === 'CLOCK_IN')
   const attendedUids = new Set(clockIns.map(l => l.card_uid))
 
-  const required  = cfg?.required_uids ?? defaultRequired
-  const officerMap = Object.fromEntries(officers.map(o => [o.card_uid, o]))
-
-  // Absent required officers
+  const required       = cfg?.required_uids ?? []
+  const officerMap     = Object.fromEntries(officers.map(o => [o.card_uid, o]))
   const absentRequired = required.filter(uid => !attendedUids.has(uid))
 
   return (
@@ -206,7 +216,7 @@ function DayDrawer({ date, dayConfig, logs, officers, defaultRequired, onClose }
                         }
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-slate-200 font-medium truncate">
-                            {log.officer_name ?? officer ? `${officer.first_name} ${officer.last_name}` : log.card_uid}
+                            {log.officer_name ?? (officer ? `${officer.first_name} ${officer.last_name}` : log.card_uid)}
                           </p>
                           <p className="text-xs text-slate-500 font-mono">{log.card_uid}</p>
                         </div>
@@ -261,37 +271,74 @@ function DayDrawer({ date, dayConfig, logs, officers, defaultRequired, onClose }
 
 // ── Calendar Page ─────────────────────────────────────────────────────────────
 export default function Calendar() {
-  const [month,          setMonth]         = useState(new Date())
-  const [logs,           setLogs]          = useState([])
-  const [dayConfig,      setDayConfig]     = useState({})
-  const [defaultRequired,setDefaultRequired] = useState([])
-  const [officers,       setOfficers]      = useState([])
-  const [loading,        setLoading]       = useState(false)
-  const [selectedDay,    setSelectedDay]   = useState(null)
+  const { semesters }                         = useSemester()
+  const [month,           setMonth]           = useState(new Date())
+  const [selectedSemester, setSelectedSemester] = useState('')
+  const [logs,            setLogs]            = useState([])
+  const [dayConfig,       setDayConfig]       = useState({})
+  const [weeklySchedule,  setWeeklySchedule]  = useState(null)
+  const [weeklyEffFrom,   setWeeklyEffFrom]   = useState(null)
+  const [officers,        setOfficers]        = useState([])
+  const [loading,         setLoading]         = useState(false)
+  const [selectedDay,     setSelectedDay]     = useState(null)
 
   const monthStart = startOfMonth(month)
   const monthEnd   = endOfMonth(month)
 
+  const handleSemesterSelect = (semId) => {
+    setSelectedSemester(semId)
+    if (!semId) return
+    const sem = semesters.find(s => s.id === semId)
+    if (sem?.start_date) {
+      try {
+        setMonth(parseISO(sem.start_date))
+      } catch (err) {
+        console.error('Invalid semester date:', err)
+      }
+    }
+  }
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      // Attendance logs for this month
       const logsQ = query(
         collection(db, 'attendance_logs'),
         where('timestamp', '>=', Timestamp.fromDate(monthStart)),
         where('timestamp', '<=', Timestamp.fromDate(monthEnd)),
       )
-      const [logsSnap, officersSnap, defaultsSnap] = await Promise.all([
+
+      // If a past semester with snapshot is chosen, use its snapshot, else live officers
+      const activeSemObj = semesters.find(s => s.id === selectedSemester)
+      const hasSnapshot = activeSemObj?.officer_snapshot && activeSemObj.officer_snapshot.length > 0
+
+      const [logsSnap, officersSnap, weeklySnap] = await Promise.all([
         getDocs(logsQ),
-        getDocs(collection(db, 'officers')),
-        getDoc(doc(db, 'day_config', 'defaults')),
+        hasSnapshot ? Promise.resolve(null) : getDocs(collection(db, 'officers')),
+        getDoc(doc(db, 'day_config', 'weekly')),
       ])
 
       setLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setOfficers(officersSnap.docs.map(d => ({ card_uid: d.id, ...d.data() })))
-      setDefaultRequired(defaultsSnap.exists() ? (defaultsSnap.data().required_uids ?? []) : [])
 
-      // Day configs for this month
+      if (hasSnapshot) {
+        setOfficers(activeSemObj.officer_snapshot)
+      } else if (officersSnap) {
+        setOfficers(officersSnap.docs.map(d => ({ card_uid: d.id, ...d.data() })))
+      }
+
+      if (weeklySnap.exists()) {
+        const data = weeklySnap.data()
+        const sched = {}
+        if (data.schedule) {
+          Object.entries(data.schedule).forEach(([k, v]) => { sched[Number(k)] = v })
+        }
+        setWeeklySchedule(sched)
+        setWeeklyEffFrom(data.effective_from ?? null)
+      } else {
+        setWeeklySchedule(null)
+        setWeeklyEffFrom(null)
+      }
+
+      // Day configs for this month (specific date overrides only)
       const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
       const configMap = {}
       await Promise.all(days.map(async (day) => {
@@ -305,7 +352,7 @@ export default function Calendar() {
     } finally {
       setLoading(false)
     }
-  }, [month]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [month, selectedSemester, semesters])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -318,7 +365,7 @@ export default function Calendar() {
   return (
     <div className="space-y-6 animate-slide-up">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
             <CalendarDays className="w-6 h-6 text-brand-400" />
@@ -326,16 +373,39 @@ export default function Calendar() {
           </h1>
           <p className="text-slate-400 mt-1 text-sm">Monthly overview of officer attendance</p>
         </div>
-        {/* Month navigation */}
-        <div className="flex items-center gap-2">
-          <button onClick={() => setMonth(m => subMonths(m, 1))}
-            className="btn-secondary p-2"><ChevronLeft className="w-4 h-4" /></button>
-          <span className="text-sm font-semibold text-white w-32 text-center">
-            {format(month, 'MMMM yyyy')}
-          </span>
-          <button onClick={() => setMonth(m => addMonths(m, 1))}
-            className="btn-secondary p-2"><ChevronRight className="w-4 h-4" /></button>
-          <button onClick={() => setMonth(new Date())} className="btn-secondary text-xs px-3">Today</button>
+
+        {/* Controls: Semester dropdown + Month navigation */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {semesters.length > 0 && (
+            <div className="flex items-center gap-2">
+              <GraduationCap className="w-4 h-4 text-brand-400" />
+              <select
+                id="calendar-semester-select"
+                className="input py-1.5 px-3 text-xs w-auto bg-slate-900 border-white/15"
+                value={selectedSemester}
+                onChange={e => handleSemesterSelect(e.target.value)}
+              >
+                <option value="">— All Semesters —</option>
+                {semesters.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} {s.status === 'active' ? '(Current)' : '(Archived)'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Month navigation */}
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => setMonth(m => subMonths(m, 1))}
+              className="btn-secondary p-2"><ChevronLeft className="w-4 h-4" /></button>
+            <span className="text-sm font-semibold text-white w-32 text-center">
+              {format(month, 'MMMM yyyy')}
+            </span>
+            <button onClick={() => setMonth(m => addMonths(m, 1))}
+              className="btn-secondary p-2"><ChevronRight className="w-4 h-4" /></button>
+            <button onClick={() => setMonth(new Date())} className="btn-secondary text-xs px-3 py-2">Today</button>
+          </div>
         </div>
       </div>
 
@@ -372,8 +442,9 @@ export default function Calendar() {
                     key={format(date, 'yyyy-MM-dd')}
                     date={date}
                     dayConfig={dayConfig}
+                    weeklySchedule={weeklySchedule}
+                    weeklyEffectiveFrom={weeklyEffFrom}
                     logs={logs}
-                    defaultRequired={defaultRequired}
                     isCurrentMonth={true}
                     onClick={setSelectedDay}
                   />
@@ -388,9 +459,10 @@ export default function Calendar() {
         <DayDrawer
           date={selectedDay}
           dayConfig={dayConfig}
+          weeklySchedule={weeklySchedule}
+          weeklyEffectiveFrom={weeklyEffFrom}
           logs={logs}
           officers={officers}
-          defaultRequired={defaultRequired}
           onClose={() => setSelectedDay(null)}
         />
       )}

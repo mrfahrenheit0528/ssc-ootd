@@ -7,7 +7,8 @@ import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, orderBy, onSnapshot, Timestamp } from 'firebase/firestore'
 import { format, startOfDay, endOfDay } from 'date-fns'
 import { db } from '../firebase'
-import { Monitor, LogIn, LogOut, Clock, Users, Wifi, WifiOff } from 'lucide-react'
+import { useSemester } from '../contexts/SemesterContext'
+import { Monitor, LogIn, LogOut, Clock, Users, Wifi, WifiOff, GraduationCap } from 'lucide-react'
 
 function StatusPill({ type, isAuto }) {
   return type === 'CLOCK_IN' ? (
@@ -69,6 +70,7 @@ function LogRow({ log, isNew }) {
 }
 
 export default function LiveKiosk() {
+  const { activeSemester }        = useSemester()
   const [logs, setLogs]           = useState([])
   const [loading, setLoading]     = useState(true)
   const [connected, setConnected] = useState(true)
@@ -132,8 +134,14 @@ export default function LiveKiosk() {
             <Monitor className="w-6 h-6 text-brand-400" />
             Live Kiosk
           </h1>
-          <p className="text-slate-400 mt-1 text-sm">
-            {format(today, 'EEEE, MMMM d, yyyy')}
+          <p className="text-slate-400 mt-1 text-sm flex items-center gap-2 flex-wrap">
+            <span>{format(today, 'EEEE, MMMM d, yyyy')}</span>
+            {activeSemester && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-500/15 text-brand-300 border border-brand-500/25">
+                <GraduationCap className="w-3 h-3" />
+                {activeSemester.name}
+              </span>
+            )}
           </p>
         </div>
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
