@@ -1,0 +1,11 @@
+# NFC / PC/SC hardware interface
+pyscard==2.0.7
+
+# Firebase cloud sync (Phase 3+)
+firebase-admin==6.5.0
+
+# Job scheduler for 9 PM auto-close (Phase 4+)
+schedule==1.2.2
+
+# Environment / config loading
+python-dotenv==1.0.1

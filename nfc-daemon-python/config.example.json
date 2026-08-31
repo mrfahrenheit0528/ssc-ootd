@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy this file to config.json and fill in your values. config.json is gitignored.",
+  "clock_out_tag_uid": "REPLACE_WITH_YOUR_CLOCK_OUT_TAG_UID",
+  "service_account_key_path": "serviceAccountKey.json",
+  "firebase_project_id": "your-firebase-project-id",
+  "sync_interval_seconds": 10,
+  "debounce_seconds": 5,
+  "clock_out_window_seconds": 15,
+  "auto_close_time": "21:00",
+  "db_path": "attendance.db",
+  "log_level": "INFO"
+}

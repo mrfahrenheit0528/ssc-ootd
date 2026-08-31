@@ -1,0 +1,39 @@
+# Python byte-compiled / optimised / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Secrets & local config — NEVER commit these
+config.json
+serviceAccountKey.json
+*.json.bak
+
+# SQLite database
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+logs/*.log
+logs/*.log.*
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
