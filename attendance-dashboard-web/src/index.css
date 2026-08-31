@@ -159,6 +159,10 @@
   .hover\:bg-white\/8:hover  { background-color: rgba(255,255,255,0.08); }
   .hover\:bg-white\/15:hover { background-color: rgba(255,255,255,0.15); }
 
+  /* Calendar day cell borders */
+  .border-white\/8  { border-color: rgba(255,255,255,0.08); }
+  .border-white\/15 { border-color: rgba(255,255,255,0.15); }
+
   .text-gradient {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-400 to-violet-400;
   }

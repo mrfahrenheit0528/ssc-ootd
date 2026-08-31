@@ -209,3 +209,107 @@ python test_firebase_sync.py
 ```
 
 All 17 tests should pass.
+
+---
+
+## Part 3 — Phase 2: RBAC, Photos & Calendar
+
+### 3.1 Enable Firebase Storage
+
+1. Go to [Firebase Console → Storage](https://console.firebase.google.com/project/ssc-attendance-53245/storage)
+2. Click **Get Started** and follow the prompts (choose your region).
+3. Firebase Storage is now ready for officer photo uploads.
+
+### 3.2 Create Your Admin Account
+
+Admins can edit officers, manage logs, and configure day types. Visitors (no account) get full read-only access.
+
+**Step 1 — Create the Firebase Auth user:**
+1. Go to [Firebase Console → Authentication → Users](https://console.firebase.google.com/project/ssc-attendance-53245/authentication/users)
+2. Click **Add User**, enter an email and password.
+3. Copy the **User UID** (shown in the users table).
+
+**Step 2 — Grant admin role in Firestore:**
+1. Go to [Firebase Console → Firestore](https://console.firebase.google.com/project/ssc-attendance-53245/firestore)
+2. Create a collection named `admins`.
+3. Create a document with the **User UID** as the Document ID.
+4. Add any field, e.g. `role` = `admin` (type: string).
+
+Now log in at `/login` in the dashboard — the Admin nav section will appear.
+
+### 3.3 Firestore Security Rules
+
+Go to [Firebase Console → Firestore → Rules](https://console.firebase.google.com/project/ssc-attendance-53245/firestore/rules) and paste:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null &&
+             exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Officers — public read, admin write
+    match /officers/{uid} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Attendance logs — public read, admin or service account write
+    match /attendance_logs/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Day configuration — public read, admin write
+    match /day_config/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Live scanner (NFC daemon writes from Admin SDK — bypasses rules)
+    match /system_settings/live_scanner {
+      allow read, write: if true;
+    }
+
+    // Admins collection — admin read only (managed via Firebase Console)
+    match /admins/{uid} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+  }
+}
+```
+
+### 3.4 Firebase Storage Rules
+
+Go to [Firebase Console → Storage → Rules](https://console.firebase.google.com/project/ssc-attendance-53245/storage/rules) and paste:
+
+```
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Officer photos — public read, authenticated write
+    match /officers/{filename} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}
+```
+
+### 3.5 Dashboard Features (Phase 2)
+
+| Feature | Who can use it |
+|---|---|
+| Live Kiosk | Everyone (read-only) |
+| Officer Roster (view) | Everyone |
+| Officer Roster (edit/enrol/delete) | Admin only |
+| NFC auto-fill on enrol | Admin (while daemon is running) |
+| Officer photo upload | Admin only |
+| Log History (view + export CSV) | Everyone |
+| Log History (edit/delete/add) | Admin only |
+| Calendar | Everyone (read-only) |
+| Day Config | Admin only |
