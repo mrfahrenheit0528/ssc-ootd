@@ -258,7 +258,10 @@ def main() -> None:
     logger.info("=" * 60)
 
     # ── Database ─────────────────────────────────────────────────────────────
-    conn = db.get_connection(cfg.db_path)
+    db_path = cfg.db_path
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(os.path.dirname(__file__), db_path)
+    conn = db.get_connection(db_path)
     db.init_db(conn)
 
     # ── Firebase (optional — offline fallback if key missing) ────────────────
@@ -298,7 +301,10 @@ def main() -> None:
 
     # ── Signals ──────────────────────────────────────────────────────────────
     signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _handle_signal)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _handle_signal)
 
     # ── NFC reader ───────────────────────────────────────────────────────────
     reader = NfcReader()

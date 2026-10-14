@@ -11,7 +11,136 @@ and a React web dashboard.
 ```
 ssc-ootd/
 ├── nfc-daemon-python/          # Python background daemon (Windows service)
-└── attendance-dashboard-web/   # React + Vite + TailwindCSS dashboard
+├── attendance-dashboard-web/   # React + Vite + TailwindCSS dashboard
+├── setup-windows.bat           # One-click dev setup (Windows)
+├── dev-web.bat                 # Launch web dashboard (Windows)
+├── dev-daemon.bat              # Launch NFC daemon w/ console (Windows)
+└── DEV_SETUP.md                # Full developer guide
+```
+
+---
+
+## 🚀 Quick Reference — Setting Up Development on a New Device
+
+> Personal checklist for continuing development on another PC (e.g. Linux → Windows).
+> For the detailed explanation of each step, see [DEV_SETUP.md](DEV_SETUP.md).
+
+### ✅ 0. Before leaving the old device
+
+- [ ] Commit and push all work: `git add -A && git commit -m "wip" && git push`
+- [ ] Copy these **3 gitignored secret files** to a USB drive / secure storage:
+
+| File | Contains |
+|---|---|
+| `attendance-dashboard-web/.env` | Firebase Web SDK config |
+| `nfc-daemon-python/config.json` | Daemon config (clock-out tag UID, project ID, etc.) |
+| `nfc-daemon-python/serviceAccountKey.json` | Firebase Admin private key |
+
+- [ ] *(Optional)* Copy `nfc-daemon-python/attendance.db` if it has **unsynced** offline scans.
+
+> [!CAUTION]
+> Never commit or upload these files to GitHub, chat apps, or public drives.
+
+### ✅ 1. Install prerequisites on the new device
+
+| Tool | Version | Download | Notes |
+|---|---|---|---|
+| Git | latest | https://git-scm.com/download/win | Keep default "checkout Windows-style, commit Unix-style" |
+| Node.js | v18+ (LTS) | https://nodejs.org | Includes npm |
+| Python | 3.10+ | https://www.python.org/downloads/ | ✔ Tick **"Add Python to PATH"** |
+| VS Code / IDE | any | https://code.visualstudio.com | Optional |
+| ACR122U driver | — | ACS website | Only if Windows doesn't auto-detect the reader |
+
+Verify in a new terminal:
+
+```cmd
+git --version
+node -v
+npm -v
+python --version
+```
+
+### ✅ 2. Clone the repository
+
+```cmd
+git clone https://github.com/mrfahrenheit0528/ssc-ootd.git
+cd ssc-ootd
+```
+
+### ✅ 3. Restore the secret files
+
+Paste the 3 files from step 0 into the **same relative paths**:
+
+```
+ssc-ootd\attendance-dashboard-web\.env
+ssc-ootd\nfc-daemon-python\config.json
+ssc-ootd\nfc-daemon-python\serviceAccountKey.json
+```
+
+> Lost them? Recreate from templates: copy `.env.example` → `.env` and
+> `config.example.json` → `config.json`, then fill in values from the
+> Firebase Console (Project Settings → Your apps / Service accounts).
+
+### ✅ 4. Run the setup script
+
+**Windows** — double-click or run:
+
+```cmd
+setup-windows.bat
+```
+
+**Linux / macOS** — manual equivalent:
+
+```bash
+cd attendance-dashboard-web && npm install && cd ..
+cd nfc-daemon-python
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+# Linux only: sudo apt install pcscd libpcsclite-dev && sudo systemctl start pcscd
+```
+
+### ✅ 5. Start developing
+
+| Task | Windows | Linux / macOS |
+|---|---|---|
+| Web dashboard | `dev-web.bat` | `cd attendance-dashboard-web && npm run dev` |
+| NFC daemon (console) | `dev-daemon.bat` | `cd nfc-daemon-python && source .venv/bin/activate && python main.py` |
+| Find a card's UID | `.venv\Scripts\python scan_uid.py` | `python scan_uid.py` |
+| Run tests | `.venv\Scripts\python test_sim.py` | `python test_sim.py && python test_firebase_sync.py` |
+
+Dashboard URL: **http://localhost:5173**
+
+### ✅ 6. Sanity check
+
+- [ ] Dashboard loads and you can log in as admin
+- [ ] Daemon log shows `Firebase Admin SDK initialised` (not `OFFLINE mode`)
+- [ ] Daemon log shows `Officer cache pre-warmed: N officer(s) loaded`
+- [ ] Tapping an enrolled card shows up on the **Live Kiosk** within a few seconds
+- [ ] `git status` is clean (no unexpected line-ending diffs)
+
+### 🩹 Common issues on a new device
+
+| Symptom | Fix |
+|---|---|
+| `'python' is not recognized` | Reinstall Python with **Add to PATH**, or use `py` instead of `python` |
+| `npm` blocked in PowerShell | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (or use `cmd`) |
+| `No PC/SC readers found` (Windows) | Admin PowerShell: `Start-Service SCardSvr; Set-Service SCardSvr -StartupType Automatic` |
+| `No PC/SC readers found` (Linux) | `sudo systemctl start pcscd` |
+| `pip install pyscard` fails (Windows) | Install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) or use Python 3.10–3.12 |
+| Daemon says `Running in OFFLINE mode` | `serviceAccountKey.json` missing or path wrong in `config.json` |
+| Dashboard says Firebase not configured | `.env` missing/incomplete — restart `npm run dev` after editing |
+| Every file shows as modified in git | `git config core.autocrlf true` (Windows), then `git checkout -- .` |
+| Port 5173 already in use | Close the other dev server or run `npm run dev -- --port 5174` |
+
+### 🔁 Daily workflow when switching devices
+
+```bash
+git pull            # always first, on the device you're starting on
+# ...work...
+git add -A
+git commit -m "describe change"
+git push            # always last, before switching devices
 ```
 
 ---

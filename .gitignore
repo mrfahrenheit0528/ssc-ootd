@@ -1,0 +1,94 @@
+# ==============================================================
+# Root .gitignore — SSC NFC Attendance System
+# Covers Node.js, Python, OS artifacts (Windows, Linux, macOS),
+# IDEs, SQLite, and sensitive credentials across the entire repository.
+# ==============================================================
+
+# ── Secrets & Local Config (NEVER commit these) ───────────────
+.env
+.env*.local
+config.json
+serviceAccountKey.json
+*.json.bak
+
+# ── Node.js / Web Dashboard ──────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Python / NFC Daemon ──────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ── SQLite Database Files ────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+
+# ── Logs ─────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+
+# ── OS Generated Files ───────────────────────────────────────
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ── IDE & Editor Settings ────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.swo

@@ -219,9 +219,61 @@ ssc-ootd/
 
 ---
 
+## 💻 Cross-Device Setup: Developing on Windows (from Linux)
+
+If you have been working on Linux and are continuing development on your Windows PC:
+
+### 1. The 3 Credential Files to Transfer
+
+Because security credentials are never committed to Git, you need to copy these **3 files** from your Linux PC to the corresponding directories on your Windows PC (e.g. via USB flash drive, local network share, or secure storage):
+
+| File to Copy | Destination on Windows |
+|---|---|
+| `attendance-dashboard-web/.env` | `attendance-dashboard-web\.env` |
+| `nfc-daemon-python/config.json` | `nfc-daemon-python\config.json` |
+| `nfc-daemon-python/serviceAccountKey.json` | `nfc-daemon-python\serviceAccountKey.json` |
+
+> 💡 **Tip:** If you prefer, you can also regenerate them using the `.example` files and Firebase Console as described above.
+
+### 2. One-Click Setup on Windows
+
+After cloning the repository and placing your credential files, open the project folder in Windows Explorer and simply run:
+
+```cmd
+setup-windows.bat
+```
+
+This automated script will:
+1. Verify **Node.js** and **Python** are installed and added to PATH.
+2. Install npm dependencies in `attendance-dashboard-web`.
+3. Create `.venv` and install `requirements.txt` in `nfc-daemon-python`.
+4. Validate that `.env`, `config.json`, and `serviceAccountKey.json` are present.
+
+### 3. One-Click Launchers on Windows
+
+You don't need to manually type terminal commands each time:
+
+| Launcher File | What It Does |
+|---|---|
+| **`dev-web.bat`** | Starts the Vite dev server for the Web Dashboard (`http://localhost:5173`) |
+| **`dev-daemon.bat`** | Starts the NFC Daemon with **visible console logs** for interactive testing |
+| **`nfc-daemon-python\start_daemon.bat`** | Runs the NFC Daemon **silently in the background** via `pythonw.exe` |
+
+### 4. Windows-Specific NFC Reader Notes
+
+- **ACR122U Driver:** Windows usually detects the ACR122U automatically via Windows Update. If the reader LED does not light up, install the official PC/SC driver from ACS.
+- **Smart Card Service:** Windows uses the built-in `SCardSvr` service. If `scan_uid.py` says `No PC/SC readers found`, make sure the service is running by opening PowerShell as Administrator and running:
+  ```powershell
+  Start-Service SCardSvr
+  Set-Service -Name SCardSvr -StartupType Automatic
+  ```
+- **Git Line Endings:** The repository includes `.gitattributes` to automatically handle LF/CRLF differences, ensuring files stay consistent between Linux and Windows without unexpected git diffs.
+
+---
+
 ## 🔒 Files That Must NOT Be Committed
 
-These files contain secrets and are already in `.gitignore`. Double-check before pushing:
+These files contain secrets and are in `.gitignore`. Double-check before pushing:
 
 | File | Why |
 |---|---|

@@ -43,8 +43,8 @@ def _make_conn():
 def _mock_firestore():
     """
     Build a minimal Firestore mock that records calls to:
-      collection().add()
-      collection().document().set()
+      batch().set()
+      batch().commit()
       collection().document().get()
     """
     fs = MagicMock()
@@ -59,6 +59,10 @@ def _mock_firestore():
         "status": "OFF_DUTY",
     }
     fs.collection("officers").document(OFFICER_A).get.return_value = officer_doc
+
+    # Batch support
+    batch = MagicMock()
+    fs.batch.return_value = batch
 
     return fs
 
@@ -79,18 +83,18 @@ class TestFirebaseSyncer(unittest.TestCase):
         syncer = FirebaseSyncer(self.conn, fs, sync_interval=1)
         syncer._sync_cycle()  # run one cycle synchronously
 
-        # attendance_logs collection should have received an add() call
-        log_col = fs.collection("attendance_logs")
-        log_col.add.assert_called_once()
-        doc_args = log_col.add.call_args[0][0]
+        # batch.set should have been called for attendance_logs and officers
+        batch = fs.batch.return_value
+        batch.commit.assert_called_once()
+        self.assertGreaterEqual(batch.set.call_count, 2)
+
+        # Inspect the attendance_log payload
+        log_payloads = [call[0][1] for call in batch.set.call_args_list if "card_uid" in call[0][1]]
+        self.assertEqual(len(log_payloads), 1)
+        doc_args = log_payloads[0]
         self.assertEqual(doc_args["card_uid"], OFFICER_A)
         self.assertEqual(doc_args["type"], "CLOCK_IN")
         self.assertFalse(doc_args["is_auto_closed"])
-
-        # officers/{uid} should have been updated to ON_DUTY
-        fs.collection("officers").document(OFFICER_A).set.assert_called_once_with(
-            {"status": "ON_DUTY"}, merge=True
-        )
 
         # Row should be marked synced in SQLite
         rows = db.get_unsynced_events(self.conn)
@@ -104,9 +108,10 @@ class TestFirebaseSyncer(unittest.TestCase):
         syncer = FirebaseSyncer(self.conn, fs, sync_interval=1)
         syncer._sync_cycle()
 
-        fs.collection("officers").document(OFFICER_A).set.assert_called_once_with(
-            {"status": "OFF_DUTY"}, merge=True
-        )
+        batch = fs.batch.return_value
+        status_payloads = [call[0][1] for call in batch.set.call_args_list if "status" in call[0][1]]
+        self.assertTrue(any(p.get("status") == "OFF_DUTY" for p in status_payloads))
+        batch.commit.assert_called_once()
         print("✅  test_02_syncs_clock_out_event PASSED")
 
     def test_03_auto_closed_flag_preserved(self):
@@ -116,15 +121,17 @@ class TestFirebaseSyncer(unittest.TestCase):
         syncer = FirebaseSyncer(self.conn, fs, sync_interval=1)
         syncer._sync_cycle()
 
-        doc_args = fs.collection("attendance_logs").add.call_args[0][0]
-        self.assertTrue(doc_args["is_auto_closed"])
+        batch = fs.batch.return_value
+        log_payloads = [call[0][1] for call in batch.set.call_args_list if "card_uid" in call[0][1]]
+        self.assertEqual(len(log_payloads), 1)
+        self.assertTrue(log_payloads[0]["is_auto_closed"])
         print("✅  test_03_auto_closed_flag_preserved PASSED")
 
     def test_04_skips_row_on_firestore_error(self):
         """If Firestore raises, the row remains unsynced for the next retry cycle."""
         db.log_event(self.conn, OFFICER_A, "CLOCK_IN")
         fs = _mock_firestore()
-        fs.collection("attendance_logs").add.side_effect = Exception("Network error")
+        fs.batch.return_value.commit.side_effect = Exception("Network error")
 
         syncer = FirebaseSyncer(self.conn, fs, sync_interval=1)
         syncer._sync_cycle()
@@ -162,7 +169,9 @@ class TestFirebaseSyncer(unittest.TestCase):
         syncer = FirebaseSyncer(self.conn, fs, sync_interval=1)
         syncer._sync_cycle()
 
-        self.assertEqual(fs.collection("attendance_logs").add.call_count, 2)
+        # Both events should be committed
+        batch = fs.batch.return_value
+        self.assertEqual(batch.commit.call_count, 2)
         self.assertEqual(len(db.get_unsynced_events(self.conn)), 0)
         print("✅  test_06_multiple_officers_synced PASSED")
 
