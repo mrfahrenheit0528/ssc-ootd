@@ -15,30 +15,12 @@ import { format, startOfDay, endOfDay, subDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import {
   History, Search, Download, LogIn, LogOut, RefreshCw,
-  Plus, Pencil, Trash2, X, Save, GraduationCap,
+  Plus, Pencil, Trash2, X, Save, GraduationCap, FileSpreadsheet,
 } from 'lucide-react'
-
-// ── CSV export helper ─────────────────────────────────────────────────────────
-function exportCSV(logs, label) {
-  const header = ['Date', 'Time', 'Officer', 'Card UID', 'Action', 'Auto-Closed']
-  const rows = logs.map(l => {
-    const ts = l.timestamp?.toDate?.() ?? new Date(l.timestamp)
-    return [
-      format(ts, 'yyyy-MM-dd'),
-      format(ts, 'HH:mm:ss'),
-      l.officer_name ?? l.card_uid,
-      l.card_uid,
-      l.type,
-      l.is_auto_closed ? 'Yes' : 'No',
-    ]
-  })
-  const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href = url; a.download = `attendance_${label}.csv`; a.click()
-  URL.revokeObjectURL(url)
-}
+import {
+  resolveDay, fetchAttendanceContext,
+  exportXLSXReport, exportCSVReport,
+} from '../utils/reportExport'
 
 // ── Quick presets ─────────────────────────────────────────────────────────────
 const PRESETS = [
@@ -191,16 +173,27 @@ export default function LogHistory() {
   const [search,           setSearch]           = useState('')
   const [logs,             setLogs]             = useState([])
   const [officers,         setOfficers]         = useState([])
+  const [officerMap,       setOfficerMap]       = useState({})
+  const [dayConfigMap,     setDayConfigMap]     = useState({})
+  const [weeklySchedule,   setWeeklySchedule]   = useState(null)
+  const [weeklyEffFrom,    setWeeklyEffFrom]    = useState(null)
   const [loading,          setLoading]          = useState(false)
+  const [exporting,        setExporting]        = useState(false)
   const [fetched,          setFetched]          = useState(false)
   const [modal,            setModal]            = useState(null) // null | 'add' | log obj
 
-  // Fetch officers for edit modal
+  // Load day config and officers context for assignment resolution
   useEffect(() => {
-    if (!isAdmin) return
-    getDocs(collection(db, 'officers'))
-      .then(snap => setOfficers(snap.docs.map(d => ({ card_uid: d.id, ...d.data() }))))
-  }, [isAdmin])
+    fetchAttendanceContext(db, selectedSemester, semesters)
+      .then(ctx => {
+        setDayConfigMap(ctx.dayConfigMap)
+        setWeeklySchedule(ctx.weeklySchedule)
+        setWeeklyEffFrom(ctx.weeklyEffectiveFrom)
+        setOfficers(ctx.officers)
+        setOfficerMap(ctx.officerMap)
+      })
+      .catch(err => console.error('Failed to load attendance context:', err))
+  }, [selectedSemester, semesters])
 
   const fetchRange = useCallback(async (fromStr, toStr) => {
     setLoading(true)
@@ -268,14 +261,47 @@ export default function LogHistory() {
       || l.type?.toLowerCase().includes(q)
   })
 
-  const handleExport = () => {
+  // Export multi-sheet XLSX report with assigned vs voluntary distinction
+  const handleExportXLSX = async () => {
+    if (filtered.length === 0) return toast.error('No data to export.')
+    setExporting(true)
+    try {
+      const res = exportXLSXReport({
+        logs: filtered,
+        dateFrom,
+        dateTo,
+        selectedSemester,
+        semesters,
+        officerMap,
+        dayConfigMap,
+        weeklySchedule,
+        weeklyEffectiveFrom: weeklyEffFrom,
+      })
+      toast.success(`Downloaded ${res.filename} with ${res.sheetsCount} sheets.`)
+    } catch (err) {
+      console.error('XLSX export error:', err)
+      toast.error('Export failed: ' + err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // Export CSV with assignment distinction
+  const handleExportCSV = () => {
     if (filtered.length === 0) return toast.error('No data to export.')
     const sem = semesters.find(s => s.id === selectedSemester)
     const label = sem
       ? sem.name.replace(/\s+/g, '_').toLowerCase()
       : (dateFrom === dateTo ? dateFrom : `${dateFrom}_to_${dateTo}`)
-    exportCSV(filtered, label)
-    toast.success(`Exported ${filtered.length} rows.`)
+    const count = exportCSVReport({
+      logs: filtered,
+      label,
+      officerMap,
+      dayConfigMap,
+      weeklySchedule,
+      weeklyEffectiveFrom: weeklyEffFrom,
+    })
+    toast.success(`Exported ${count} records to CSV.`)
   }
 
   const activeSemObj = semesters.find(s => s.id === selectedSemester)
@@ -290,7 +316,7 @@ export default function LogHistory() {
             Log History
           </h1>
           <p className="text-slate-400 mt-1 text-sm">
-            Browse, filter by semester or custom date range, and export records.
+            Browse, filter by semester or custom date range, and export reports.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -299,8 +325,28 @@ export default function LogHistory() {
               <Plus className="w-4 h-4" /> Add Entry
             </button>
           )}
-          <button id="export-csv-btn" onClick={handleExport} disabled={filtered.length === 0} className="btn-success">
-            <Download className="w-4 h-4" /> Export CSV ({filtered.length})
+          <button
+            id="export-xlsx-btn"
+            onClick={handleExportXLSX}
+            disabled={filtered.length === 0 || exporting}
+            className="btn-success"
+            title="Download multi-sheet Excel report (.xlsx)"
+          >
+            {exporting ? (
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4" />
+            )}
+            {exporting ? 'Generating…' : 'Export Report (.xlsx)'}
+          </button>
+          <button
+            id="export-csv-btn"
+            onClick={handleExportCSV}
+            disabled={filtered.length === 0}
+            className="btn-secondary"
+            title="Download session-grouped CSV"
+          >
+            <Download className="w-4 h-4" /> CSV
           </button>
         </div>
       </div>
@@ -405,6 +451,7 @@ export default function LogHistory() {
               <thead>
                 <tr>
                   <th>Officer</th>
+                  <th>Assignment</th>
                   <th>Action</th>
                   <th>Date</th>
                   <th>Time</th>
@@ -415,11 +462,28 @@ export default function LogHistory() {
               <tbody>
                 {filtered.map(log => {
                   const ts = log.timestamp?.toDate?.() ?? new Date(log.timestamp)
+                  const logDateStr = format(ts, 'yyyy-MM-dd')
+                  const dayCfg = resolveDay(logDateStr, dayConfigMap, weeklySchedule, weeklyEffFrom)
+                  const isAssigned = (dayCfg?.required_uids ?? []).includes(log.card_uid)
+                  const officer = officerMap[log.card_uid]
+
                   return (
                     <tr key={log.id} className={`border-b border-white/5 hover:bg-white/3 transition-colors ${log.manually_edited ? 'bg-amber-500/5' : ''}`}>
                       <td className="px-4 py-3 font-medium">
-                        {log.officer_name ?? log.card_uid}
-                        {log.manually_edited && <span className="ml-2 text-xs text-amber-500/70">(edited)</span>}
+                        <p className="text-slate-100">{log.officer_name ?? log.card_uid}</p>
+                        {officer?.position && <p className="text-xs text-slate-500">{officer.position}</p>}
+                        {log.manually_edited && <span className="text-xs text-amber-500/70">(edited)</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {isAssigned ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-500/20 text-brand-300 border border-brand-500/30">
+                            Assigned OOTD
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700/50 text-slate-400 border border-white/10">
+                            Not Required
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3"><TypePill type={log.type} isAuto={log.is_auto_closed} /></td>
                       <td className="px-4 py-3 text-slate-400 text-sm">{format(ts, 'MMM d, yyyy')}</td>

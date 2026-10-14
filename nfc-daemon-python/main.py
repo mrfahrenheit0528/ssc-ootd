@@ -157,6 +157,93 @@ def _publish_live_tap(firestore_client, uid: str) -> None:
     threading.Thread(target=_worker, daemon=True).start()
 
 
+class EnrollmentModeWatcher:
+    """
+    Subscribes to system_settings/enrollment_mode in Firestore.
+    When the web enrol-officer modal is open it sets active=true,
+    which causes the daemon to skip process_tap() so that the card
+    tap only auto-fills the UID field and does NOT record attendance.
+    """
+
+    def __init__(self, firestore_client) -> None:
+        self._active = False
+        self._unsubscribe = None
+        if firestore_client is None:
+            return
+
+        ref = firestore_client.collection("system_settings").document("enrollment_mode")
+
+        def _on_snapshot(doc_snapshot, changes, read_time):
+            for doc in doc_snapshot:
+                data = doc.to_dict() or {}
+                was = self._active
+                self._active = bool(data.get("active", False))
+                if self._active != was:
+                    if self._active:
+                        logger.info("[ENROLL] Enrollment mode ACTIVE — taps will not record attendance.")
+                    else:
+                        logger.info("[ENROLL] Enrollment mode CLEARED — normal attendance resumed.")
+
+        self._unsubscribe = ref.on_snapshot(_on_snapshot)
+        logger.info("EnrollmentModeWatcher started.")
+
+    @property
+    def is_active(self) -> bool:
+        return self._active
+
+    def stop(self) -> None:
+        if self._unsubscribe:
+            self._unsubscribe()
+
+
+class OfficerRegistry:
+    """
+    Maintains an in-memory set of enrolled officer UIDs by subscribing to
+    the Firestore `officers` collection via on_snapshot.
+
+    Any card UID not in this set is silently ignored by the daemon —
+    it will NOT be recorded in SQLite or synced to Firestore.
+
+    If Firebase is unavailable (offline mode), `is_enrolled` always
+    returns True so the daemon continues working without a connection.
+    """
+
+    def __init__(self, firestore_client) -> None:
+        self._enrolled: set[str] = set()
+        self._unsubscribe = None
+        self._firebase_available = firestore_client is not None
+
+        if not self._firebase_available:
+            logger.warning(
+                "OfficerRegistry: no Firebase client — all UIDs will be accepted (offline mode)."
+            )
+            return
+
+        def _on_snapshot(col_snapshot, changes, read_time):
+            new_set: set[str] = set()
+            for doc in col_snapshot:
+                new_set.add(doc.id.upper())
+            old_count = len(self._enrolled)
+            self._enrolled = new_set
+            logger.info(
+                "OfficerRegistry updated: %d enrolled officer(s) (was %d).",
+                len(self._enrolled), old_count,
+            )
+
+        self._unsubscribe = firestore_client.collection("officers").on_snapshot(_on_snapshot)
+        logger.info("OfficerRegistry started — watching officers collection.")
+
+    def is_enrolled(self, uid: str) -> bool:
+        """Return True if the UID is a registered officer (or Firebase is offline)."""
+        if not self._firebase_available:
+            return True  # offline fallback: allow all taps
+        return uid.upper() in self._enrolled
+
+    def stop(self) -> None:
+        if self._unsubscribe:
+            self._unsubscribe()
+
+
 def main() -> None:
     # ── Config ──────────────────────────────────────────────────────────────
     try:
@@ -188,6 +275,7 @@ def main() -> None:
             sync_interval=cfg.sync_interval_seconds,
         )
         syncer.start()
+        syncer.prefetch_officers()  # pre-warm officer name cache to skip Firestore GET on first tap
         logger.info("FirebaseSyncer thread started.")
     else:
         logger.warning("FirebaseSyncer NOT started (no Firebase client).")
@@ -201,6 +289,12 @@ def main() -> None:
 
     # ── State machine ────────────────────────────────────────────────────────
     sm = StateMachine(cfg=cfg, conn=conn, on_event=_on_event)
+
+    # ── Enrollment mode watcher (skips attendance during officer enrolment) ───
+    enrollment_watcher = EnrollmentModeWatcher(firestore_client)
+
+    # ── Officer registry (rejects taps from unenrolled cards) ────────────
+    officer_registry = OfficerRegistry(firestore_client)
 
     # ── Signals ──────────────────────────────────────────────────────────────
     signal.signal(signal.SIGINT, _handle_signal)
@@ -217,9 +311,22 @@ def main() -> None:
             if not _running:
                 break
             _publish_live_tap(firestore_client, uid)
-            sm.process_tap(uid)
+            if enrollment_watcher.is_active:
+                logger.info("[ENROLL] Tap uid=%s ignored for attendance (enrollment mode active).", uid)
+            elif uid != cfg.clock_out_tag_uid and not officer_registry.is_enrolled(uid):
+                logger.info("[UNKNOWN] Tap uid=%s ignored — card not enrolled as an officer.", uid)
+            else:
+                result = sm.process_tap(uid)
+                # Trigger an immediate Firestore sync for any event that was recorded
+                if syncer and result in (
+                    TapResult.CLOCKED_IN,
+                    TapResult.CLOCKED_OUT,
+                ):
+                    syncer.trigger()
     finally:
         reader.stop()
+        enrollment_watcher.stop()
+        officer_registry.stop()
         if syncer:
             syncer.stop()
         if scheduler:

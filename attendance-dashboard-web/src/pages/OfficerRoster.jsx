@@ -8,7 +8,7 @@
 //  - Historical roster: view archived officer snapshot from any past semester
 
 import { useState, useEffect, useRef } from 'react'
-import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore'
+import { collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -139,6 +139,18 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  // ── Enrollment mode flag — tells daemon to skip attendance while modal is open ─
+  useEffect(() => {
+    if (isEdit) return // edit modals don't need to block attendance
+    const enrollRef = doc(db, 'system_settings', 'enrollment_mode')
+    setDoc(enrollRef, { active: true, opened_at: serverTimestamp() }, { merge: true })
+      .catch(err => console.warn('Could not set enrollment_mode:', err))
+    return () => {
+      setDoc(enrollRef, { active: false }, { merge: true })
+        .catch(err => console.warn('Could not clear enrollment_mode:', err))
+    }
+  }, [isEdit])
+
   // ── Live NFC tap auto-fill (timestamp-gated) ──────────────────────────────
   useEffect(() => {
     if (isEdit) return // never overwrite UID on edit
@@ -222,12 +234,20 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
       // If a new photo file was chosen
       if (photoFile) {
         try {
-          // Attempt Firebase Storage first
+          // Attempt Firebase Storage with an 8-second timeout; fall back to Base64 if it hangs
+          const uploadTimeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Storage upload timed out')), 8000)
+          )
           const fileRef = storageRef(storage, `officers/${uid}.jpg`)
-          await uploadBytes(fileRef, photoFile, { contentType: 'image/jpeg' })
-          photoUrl = await getDownloadURL(fileRef)
+          await Promise.race([
+            (async () => {
+              await uploadBytes(fileRef, photoFile, { contentType: 'image/jpeg' })
+              photoUrl = await getDownloadURL(fileRef)
+            })(),
+            uploadTimeout,
+          ])
         } catch (storageErr) {
-          console.warn('Storage upload error, using optimized Base64 fallback:', storageErr)
+          console.warn('Storage upload failed or timed out, using Base64 fallback:', storageErr.message)
           if (photoPreview && photoPreview.startsWith('data:image')) {
             photoUrl = photoPreview
           }

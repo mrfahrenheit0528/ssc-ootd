@@ -43,30 +43,79 @@ function StatCard({ icon: Icon, label, value, accent }) {
   )
 }
 
-function LogRow({ log, isNew }) {
+function SessionRow({ session, isNew }) {
+  const { officer_name, card_uid, clockIn, clockOut } = session
+  const fmt = (ts) => ts?.toDate ? format(ts.toDate(), 'hh:mm:ss a') : '—'
+
   return (
     <tr className={`border-b border-white/5 transition-all duration-500 ${isNew ? 'bg-brand-500/10 animate-fade-in' : 'hover:bg-white/3'}`}>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500/30 to-violet-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-brand-300">
-            {log.officer_name?.charAt(0) ?? '?'}
+            {officer_name?.charAt(0) ?? '?'}
           </div>
-          <span className="font-medium text-slate-100">{log.officer_name ?? log.card_uid}</span>
+          <div>
+            <p className="font-medium text-slate-100">{officer_name ?? card_uid}</p>
+            <p className="text-xs text-slate-500 font-mono">{card_uid}</p>
+          </div>
         </div>
       </td>
-      <td className="px-4 py-3">
-        <StatusPill type={log.type} isAuto={log.is_auto_closed} />
-      </td>
       <td className="px-4 py-3 text-slate-400 text-sm font-mono">
-        {log.timestamp?.toDate
-          ? format(log.timestamp.toDate(), 'hh:mm:ss a')
-          : '—'}
+        {fmt(clockIn?.timestamp)}
       </td>
-      <td className="px-4 py-3 text-slate-500 text-xs font-mono">
-        {log.card_uid}
+      <td className="px-4 py-3 text-sm font-mono">
+        {clockOut ? (
+          <span className="text-slate-400">{fmt(clockOut.timestamp)}</span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+            On Duty
+          </span>
+        )}
       </td>
+      {clockOut?.is_auto_closed && (
+        <td className="px-4 py-3">
+          <span className="text-xs text-slate-500 italic">auto-closed</span>
+        </td>
+      )}
     </tr>
   )
+}
+
+// Group flat log events into per-officer sessions:
+// Each session = { officer_name, card_uid, clockIn, clockOut }
+// Multiple sessions per officer only when they clock in again after clocking out.
+function buildSessions(logs) {
+  // Work chronologically (ascending)
+  const asc = [...logs].sort((a, b) => {
+    const ta = a.timestamp?.toMillis?.() ?? 0
+    const tb = b.timestamp?.toMillis?.() ?? 0
+    return ta - tb
+  })
+
+  // Per-officer open session tracker
+  const openSessions = {} // card_uid → session object
+  const sessions = []
+
+  for (const log of asc) {
+    const uid = log.card_uid
+    if (log.type === 'CLOCK_IN') {
+      const session = { officer_name: log.officer_name, card_uid: uid, clockIn: log, clockOut: null }
+      openSessions[uid] = session
+      sessions.push(session)
+    } else if (log.type === 'CLOCK_OUT') {
+      if (openSessions[uid]) {
+        openSessions[uid].clockOut = log
+        delete openSessions[uid]
+      } else {
+        // Orphan clock-out (no matching clock-in today) — show as its own row
+        sessions.push({ officer_name: log.officer_name, card_uid: uid, clockIn: null, clockOut: log })
+      }
+    }
+  }
+
+  // Return descending (most recent first)
+  return sessions.reverse()
 }
 
 export default function LiveKiosk() {
@@ -74,8 +123,8 @@ export default function LiveKiosk() {
   const [logs, setLogs]           = useState([])
   const [loading, setLoading]     = useState(true)
   const [connected, setConnected] = useState(true)
-  const [newIds, setNewIds]       = useState(new Set())
-  const prevIds = useRef(new Set())
+  const [newUids, setNewUids]     = useState(new Set())
+  const prevUids = useRef(new Set())
 
   const today = new Date()
   const todayStart = Timestamp.fromDate(startOfDay(today))
@@ -94,16 +143,16 @@ export default function LiveKiosk() {
       (snap) => {
         const incoming = snap.docs.map(d => ({ id: d.id, ...d.data() }))
 
-        // Detect newly added docs
-        const freshIds = new Set()
+        // Detect newly active officer UIDs
+        const freshUids = new Set()
         incoming.forEach(doc => {
-          if (!prevIds.current.has(doc.id)) freshIds.add(doc.id)
+          if (!prevUids.current.has(doc.card_uid)) freshUids.add(doc.card_uid)
         })
-        prevIds.current = new Set(incoming.map(d => d.id))
+        prevUids.current = new Set(incoming.map(d => d.card_uid))
 
-        if (freshIds.size > 0) {
-          setNewIds(freshIds)
-          setTimeout(() => setNewIds(new Set()), 2500) // remove highlight after 2.5s
+        if (freshUids.size > 0) {
+          setNewUids(freshUids)
+          setTimeout(() => setNewUids(new Set()), 2500)
         }
 
         setLogs(incoming)
@@ -120,10 +169,10 @@ export default function LiveKiosk() {
     return () => unsub()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totalToday  = logs.length
-  const clockIns    = logs.filter(l => l.type === 'CLOCK_IN').length
-  const clockOuts   = logs.filter(l => l.type === 'CLOCK_OUT').length
-  const onDutyNow   = clockIns - clockOuts
+  const sessions   = buildSessions(logs)
+  const onDutyNow  = sessions.filter(s => !s.clockOut).length
+  const clockedOut = sessions.filter(s => s.clockOut).length
+  const totalOfficers = new Set(logs.map(l => l.card_uid)).size
 
   return (
     <div className="space-y-6 animate-slide-up">
@@ -158,16 +207,16 @@ export default function LiveKiosk() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={Clock}  label="Total Events"   value={totalToday} accent="brand"   />
-        <StatCard icon={Users}  label="Currently On Duty" value={Math.max(0, onDutyNow)} accent="emerald" />
-        <StatCard icon={LogOut} label="Clocked Out"    value={clockOuts}  accent="amber"  />
+        <StatCard icon={Users}  label="Officers Today"    value={totalOfficers}            accent="brand"   />
+        <StatCard icon={Clock}  label="Currently On Duty" value={Math.max(0, onDutyNow)}  accent="emerald" />
+        <StatCard icon={LogOut} label="Clocked Out"       value={clockedOut}               accent="amber"  />
       </div>
 
-      {/* Log table */}
+      {/* Session table */}
       <div className="card overflow-hidden">
         <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
           <h2 className="font-semibold text-white text-sm">Today's Attendance Events</h2>
-          <span className="text-xs text-slate-500">{totalToday} event{totalToday !== 1 ? 's' : ''}</span>
+          <span className="text-xs text-slate-500">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
         </div>
 
         {loading ? (
@@ -175,7 +224,7 @@ export default function LiveKiosk() {
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mr-3" />
             Loading…
           </div>
-        ) : logs.length === 0 ? (
+        ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-slate-500 gap-3">
             <Clock className="w-10 h-10 opacity-30" />
             <p className="text-sm">No attendance events yet today.</p>
@@ -187,14 +236,17 @@ export default function LiveKiosk() {
               <thead>
                 <tr>
                   <th>Officer</th>
-                  <th>Action</th>
-                  <th>Time</th>
-                  <th>Card UID</th>
+                  <th>Clock In</th>
+                  <th>Clock Out</th>
                 </tr>
               </thead>
               <tbody>
-                {logs.map(log => (
-                  <LogRow key={log.id} log={log} isNew={newIds.has(log.id)} />
+                {sessions.map((session, i) => (
+                  <SessionRow
+                    key={`${session.card_uid}-${i}`}
+                    session={session}
+                    isNew={newUids.has(session.card_uid)}
+                  />
                 ))}
               </tbody>
             </table>

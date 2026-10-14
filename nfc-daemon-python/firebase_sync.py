@@ -57,7 +57,9 @@ class FirebaseSyncer(threading.Thread):
         self._conn = db_conn
         self._db = firestore_client
         self._sync_interval = sync_interval
-        self._stop_event = threading.Event()
+        self._stop_event    = threading.Event()
+        self._trigger_event = threading.Event()  # set to wake the loop immediately
+        self._syncing_lock  = threading.Lock()   # prevents overlapping sync cycles
 
         # In-memory cache: card_uid → {"first_name": str, "last_name": str}
         self._officer_cache: dict[str, dict] = {}
@@ -65,15 +67,47 @@ class FirebaseSyncer(threading.Thread):
     def stop(self) -> None:
         """Signal the thread to exit after the current cycle."""
         self._stop_event.set()
+        self._trigger_event.set()  # unblock the wait so the thread exits quickly
+
+    def trigger(self) -> None:
+        """
+        Wake the sync loop immediately instead of waiting for the next interval.
+        Call this right after a successful clock-in or clock-out.
+        """
+        self._trigger_event.set()
+
+    def prefetch_officers(self) -> None:
+        """
+        Pre-load all enrolled officers into the in-memory cache.
+        Call once after the syncer starts to eliminate Firestore reads
+        on the first clock-in of each officer.
+        """
+        try:
+            docs = self._db.collection("officers").stream()
+            count = 0
+            for doc in docs:
+                self._officer_cache[doc.id.upper()] = doc.to_dict() or {}
+                count += 1
+            logger.info("Officer cache pre-warmed: %d officer(s) loaded.", count)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not pre-warm officer cache: %s", exc)
 
     def run(self) -> None:
-        logger.info("FirebaseSyncer started (interval=%ds).", self._sync_interval)
+        logger.info("FirebaseSyncer started (interval=%ds, instant-trigger enabled).", self._sync_interval)
         while not self._stop_event.is_set():
-            try:
-                self._sync_cycle()
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Unexpected error in sync cycle: %s", exc, exc_info=True)
-            self._stop_event.wait(self._sync_interval)
+            # Wait until either the interval elapses OR trigger() is called
+            self._trigger_event.wait(timeout=self._sync_interval)
+            self._trigger_event.clear()
+
+            if self._stop_event.is_set():
+                break
+
+            with self._syncing_lock:
+                try:
+                    self._sync_cycle()
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Unexpected error in sync cycle: %s", exc, exc_info=True)
+
         logger.info("FirebaseSyncer stopped.")
 
     # ------------------------------------------------------------------
@@ -102,11 +136,12 @@ class FirebaseSyncer(threading.Thread):
 
     def _push_row(self, row) -> None:
         """
-        Push a single sync_queue row to Firestore:
+        Push a single sync_queue row to Firestore using a batch write:
           1. Add to attendance_logs collection.
           2. Update officers/{card_uid}.status.
+        Both writes go in one network round trip via batch.commit().
         """
-        card_uid: str = row["card_uid"]
+        card_uid: str = row["card_uid"].upper()
         action_type: str = row["action_type"]      # "CLOCK_IN" or "CLOCK_OUT"
         timestamp_str: str = row["timestamp"]       # ISO 8601 UTC
         is_auto_closed: bool = bool(row["is_auto_closed"])
@@ -121,22 +156,30 @@ class FirebaseSyncer(threading.Thread):
         # Parse timestamp to a Python datetime for Firestore
         ts = datetime.fromisoformat(timestamp_str)
 
-        # ── attendance_logs document ──────────────────────────────────────────
-        log_doc = {
-            "card_uid": card_uid,
-            "officer_name": officer_name,
-            "type": action_type,
-            "timestamp": ts,
-            "is_auto_closed": is_auto_closed,
-        }
-        self._db.collection("attendance_logs").add(log_doc)
-        logger.debug("attendance_logs: added %s for %s", action_type, officer_name)
-
-        # ── officers/{card_uid} status update ────────────────────────────────
         new_status = "ON_DUTY" if action_type == "CLOCK_IN" else "OFF_DUTY"
+
+        # ── Batch both writes into a single network round trip ───────────────
+        batch = self._db.batch()
+
+        # attendance_logs document (auto-generated ID)
+        log_ref = self._db.collection("attendance_logs").document()
+        batch.set(log_ref, {
+            "card_uid":      card_uid,
+            "officer_name":  officer_name,
+            "type":          action_type,
+            "timestamp":     ts,
+            "is_auto_closed": is_auto_closed,
+        })
+
+        # officers/{card_uid} status update
         officer_ref = self._db.collection("officers").document(card_uid)
-        officer_ref.set({"status": new_status}, merge=True)
-        logger.debug("officers/%s status → %s", card_uid, new_status)
+        batch.set(officer_ref, {"status": new_status}, merge=True)
+
+        batch.commit()  # single network call instead of two sequential ones
+        logger.debug(
+            "Batch committed: attendance_log + officers/%s status=%s (%s)",
+            card_uid, new_status, officer_name,
+        )
 
     # ------------------------------------------------------------------
     # Officer name resolution (with in-memory cache)

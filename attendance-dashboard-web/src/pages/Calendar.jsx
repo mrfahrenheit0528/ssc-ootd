@@ -18,8 +18,10 @@ import { db } from '../firebase'
 import { useSemester } from '../contexts/SemesterContext'
 import {
   CalendarDays, ChevronLeft, ChevronRight, X, Clock,
-  UserCircle, GraduationCap,
+  UserCircle, GraduationCap, FileSpreadsheet,
 } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { exportXLSXReport } from '../utils/reportExport'
 
 // ── Day type config ──────────────────────────────────────────────────────────
 const DAY_TYPES = {
@@ -197,17 +199,42 @@ function DayDrawer({ date, dayConfig, weeklySchedule, weeklyEffectiveFrom, logs,
             </div>
           </div>
 
-          {/* Attendance log */}
-          {dayLogs.length > 0 ? (
-            <div>
-              <h3 className="text-xs text-slate-500 font-semibold uppercase tracking-wide mb-3">Events</h3>
-              <div className="space-y-2">
-                {dayLogs
-                  .sort((a, b) => (a.timestamp?.toMillis?.() ?? 0) - (b.timestamp?.toMillis?.() ?? 0))
-                  .map(log => {
-                    const officer = officerMap[log.card_uid]
+          {/* Attendance log — grouped into sessions */}
+          {(() => {
+            // Build sessions: pair each CLOCK_IN with its next CLOCK_OUT per officer
+            const asc = [...dayLogs].sort((a, b) =>
+              (a.timestamp?.toMillis?.() ?? 0) - (b.timestamp?.toMillis?.() ?? 0)
+            )
+            const openSessions = {}
+            const sessions = []
+            for (const log of asc) {
+              const uid = log.card_uid
+              if (log.type === 'CLOCK_IN') {
+                const s = { log, clockIn: log, clockOut: null }
+                openSessions[uid] = s
+                sessions.push(s)
+              } else if (log.type === 'CLOCK_OUT') {
+                if (openSessions[uid]) {
+                  openSessions[uid].clockOut = log
+                  delete openSessions[uid]
+                } else {
+                  sessions.push({ log, clockIn: null, clockOut: log })
+                }
+              }
+            }
+            const fmt = ts => ts?.toDate ? format(ts.toDate(), 'h:mm a') : '—'
+
+            return sessions.length > 0 ? (
+              <div>
+                <h3 className="text-xs text-slate-500 font-semibold uppercase tracking-wide mb-3">Events</h3>
+                <div className="space-y-2">
+                  {sessions.map((s, i) => {
+                    const uid = s.clockIn?.card_uid ?? s.clockOut?.card_uid
+                    const officer = officerMap[uid]
+                    const name = s.clockIn?.officer_name ?? s.clockOut?.officer_name
+                      ?? (officer ? `${officer.first_name} ${officer.last_name}` : uid)
                     return (
-                      <div key={log.id} className="flex items-center gap-3 py-2 border-b border-white/5">
+                      <div key={`${uid}-${i}`} className="flex items-center gap-3 py-2 border-b border-white/5">
                         {officer?.photo_url
                           ? <img src={officer.photo_url} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                           : <div className="w-8 h-8 rounded-full bg-brand-500/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
@@ -215,31 +242,51 @@ function DayDrawer({ date, dayConfig, weeklySchedule, weeklyEffectiveFrom, logs,
                             </div>
                         }
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-slate-200 font-medium truncate">
-                            {log.officer_name ?? (officer ? `${officer.first_name} ${officer.last_name}` : log.card_uid)}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm text-slate-200 font-medium truncate">{name}</p>
+                            {(cfg?.required_uids ?? []).includes(uid) ? (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-300 border border-brand-500/30">
+                                Assigned OOTD
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400 border border-white/10">
+                                Not Required
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 font-mono">
+                            {uid} {officer?.position ? `• ${officer.position}` : ''}
                           </p>
-                          <p className="text-xs text-slate-500 font-mono">{log.card_uid}</p>
                         </div>
-                        <div className="text-right flex-shrink-0">
-                          <span className={log.type === 'CLOCK_IN' ? 'badge-clock-in' : 'badge-clock-out'}>
-                            {log.type === 'CLOCK_IN' ? 'In' : 'Out'}
-                          </span>
-                          <p className="text-xs text-slate-600 mt-1 font-mono">
-                            {log.timestamp?.toDate ? format(log.timestamp.toDate(), 'h:mm a') : '—'}
+                        <div className="text-right flex-shrink-0 space-y-0.5">
+                          <p className="text-xs font-mono">
+                            <span className="badge-clock-in mr-1">In</span>
+                            <span className="text-slate-400">{fmt(s.clockIn?.timestamp)}</span>
+                          </p>
+                          <p className="text-xs font-mono">
+                            <span className="badge-clock-out mr-1">Out</span>
+                            {s.clockOut ? (
+                              <span className="text-slate-400">{fmt(s.clockOut?.timestamp)}</span>
+                            ) : (
+                              <span className="text-emerald-400 inline-flex items-center gap-1">
+                                <span className="w-1 h-1 rounded-full bg-emerald-400 animate-ping inline-block" />
+                                On Duty
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>
                     )
-                  })
-                }
+                  })}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center py-8 text-slate-600 gap-2">
-              <Clock className="w-8 h-8 opacity-30" />
-              <p className="text-sm">No attendance events this day.</p>
-            </div>
-          )}
+            ) : (
+              <div className="flex flex-col items-center py-8 text-slate-600 gap-2">
+                <Clock className="w-8 h-8 opacity-30" />
+                <p className="text-sm">No attendance events this day.</p>
+              </div>
+            )
+          })()}
 
           {/* Absent required officers */}
           {absentRequired.length > 0 && (
@@ -406,6 +453,39 @@ export default function Calendar() {
               className="btn-secondary p-2"><ChevronRight className="w-4 h-4" /></button>
             <button onClick={() => setMonth(new Date())} className="btn-secondary text-xs px-3 py-2">Today</button>
           </div>
+
+          {/* Export Month XLSX */}
+          <button
+            id="calendar-export-month-btn"
+            onClick={() => {
+              if (logs.length === 0) return toast.error('No logs recorded for this month.')
+              const officerMap = {}
+              officers.forEach(o => { if (o.card_uid) officerMap[o.card_uid] = o })
+              try {
+                const res = exportXLSXReport({
+                  logs,
+                  dateFrom: format(monthStart, 'yyyy-MM-dd'),
+                  dateTo: format(monthEnd, 'yyyy-MM-dd'),
+                  selectedSemester,
+                  semesters,
+                  officerMap,
+                  dayConfigMap: dayConfig,
+                  weeklySchedule,
+                  weeklyEffectiveFrom: weeklyEffFrom,
+                })
+                toast.success(`Downloaded ${res.filename} with ${res.sheetsCount} sheets.`)
+              } catch (err) {
+                console.error('Export month failed:', err)
+                toast.error('Failed to export month: ' + err.message)
+              }
+            }}
+            disabled={logs.length === 0}
+            className="btn-success text-xs py-2 px-3 flex items-center gap-1.5"
+            title="Download full monthly attendance report (.xlsx)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Export Month (.xlsx)</span>
+          </button>
         </div>
       </div>
 
