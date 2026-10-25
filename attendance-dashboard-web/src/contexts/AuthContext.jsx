@@ -22,14 +22,20 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let generation = 0
     const unsub = onAuthStateChanged(auth, async (u) => {
+      const current = ++generation
+      setLoading(true)
+      setIsAdmin(false)
       setUser(u)
       if (u) {
         // Check admins collection
         try {
           const snap = await getDoc(doc(db, 'admins', u.uid))
+          if (current !== generation) return
           setIsAdmin(snap.exists())
         } catch {
+          if (current !== generation) return
           setIsAdmin(false)
         }
       } else {
@@ -37,7 +43,10 @@ export function AuthProvider({ children }) {
       }
       setLoading(false)
     })
-    return () => unsub()
+    return () => {
+      generation++
+      unsub()
+    }
   }, [])
 
   const login = (email, password) =>

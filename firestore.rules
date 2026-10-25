@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Membership is managed in the Firebase Console, never by web clients.
+    match /admins/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    match /officers/{id} { allow read, write: if isAdmin(); }
+    match /attendance_logs/{id} { allow read, write: if isAdmin(); }
+    match /day_config/{id} { allow read, write: if isAdmin(); }
+    match /semesters/{id} { allow read, write: if isAdmin(); }
+    match /system_settings/{id} { allow read, write: if isAdmin(); }
+    // All other paths are denied by default. The daemon uses the Admin SDK.
+  }
+}

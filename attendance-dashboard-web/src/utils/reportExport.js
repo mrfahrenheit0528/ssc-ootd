@@ -11,6 +11,7 @@
 // 2. Session-grouped CSV reports with Assignment distinction.
 
 import * as XLSX from 'xlsx'
+import { serializeCSV } from './csv.js'
 import {
   format, parseISO, getDay, isSameDay, eachDayOfInterval,
   startOfDay, endOfDay, max, min,
@@ -709,9 +710,7 @@ export function exportCSVReport({
     r.remarks,
   ])
 
-  const csv = [header, ...rows]
-    .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
-    .join('\n')
+  const csv = serializeCSV([header, ...rows])
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)

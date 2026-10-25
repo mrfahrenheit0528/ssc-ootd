@@ -1,6 +1,6 @@
 // src/firebase.js
 // ----------------
-// Firebase JS SDK v10 initialisation.
+// Firebase modular JS SDK initialisation.
 // Checks for missing env vars and throws a descriptive error so the
 // ErrorBoundary can render a helpful setup screen instead of a white crash.
 

@@ -17,11 +17,17 @@ echo.
 where node >nul 2>nul
 if %errorlevel% neq 0 (
     echo [ERROR] Node.js is not installed or not in your PATH.
-    echo Please install Node.js v18+ from https://nodejs.org/
+    echo Please install Node.js v22.12+ or v24+ from https://nodejs.org/
     pause
     exit /b 1
 )
 for /f "tokens=*" %%i in ('node -v') do set NODE_VER=%%i
+node -e "const [major,minor]=process.versions.node.split('.').map(Number); process.exit((major===22 && minor>=12)||major>=24 ? 0 : 1)"
+if errorlevel 1 (
+    echo [ERROR] Node.js v22.12+ or v24+ is required. Found !NODE_VER!.
+    pause
+    exit /b 1
+)
 echo [OK] Found Node.js: !NODE_VER!
 
 :: 2. Check Python
@@ -42,17 +48,13 @@ echo ------------------------------------------------------------
 echo [1/2] Setting up Web Dashboard (attendance-dashboard-web)...
 echo ------------------------------------------------------------
 cd attendance-dashboard-web
-if not exist "node_modules\" (
-    echo Installing npm dependencies...
-    call npm install
-    if %errorlevel% neq 0 (
-        echo [ERROR] npm install failed.
-        cd ..
-        pause
-        exit /b 1
-    )
-) else (
-    echo [OK] node_modules already exists. Skipping npm install.
+echo Installing locked npm dependencies...
+call npm ci
+if errorlevel 1 (
+    echo [ERROR] npm ci failed.
+    cd ..
+    pause
+    exit /b 1
 )
 
 if not exist ".env" (

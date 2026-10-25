@@ -6,10 +6,29 @@
 
 # ── Secrets & Local Config (NEVER commit these) ───────────────
 .env
+.env.*
+!.env.example
 .env*.local
 config.json
 serviceAccountKey.json
+serviceAccountKey*.json
+*firebase-adminsdk*.json
+credentials.json
+credentials.*.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.sqlite*-shm
+*.sqlite*-wal
 *.json.bak
+
+# Attendance exports contain personal data
+exports/
+attendance_*.csv
+attendance_report_*.xlsx
 
 # ── Node.js / Web Dashboard ──────────────────────────────────
 node_modules/

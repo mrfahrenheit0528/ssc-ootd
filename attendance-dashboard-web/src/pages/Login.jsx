@@ -1,6 +1,6 @@
 // src/pages/Login.jsx
 // -------------------
-// Admin-only login page. Visitors never need to log in.
+// Admin login is required to view attendance data.
 // Admins: create account in Firebase Console → Authentication → Add user.
 // Then add their UID to Firestore: admins/{uid} → { role: "admin" }
 
@@ -124,7 +124,7 @@ export default function Login() {
           </form>
 
           <p className="text-xs text-slate-600 text-center pt-2">
-            Visitors don't need an account — just close this page.
+            Attendance data requires an admin account — contact your administrator for access.
           </p>
         </div>
       </div>

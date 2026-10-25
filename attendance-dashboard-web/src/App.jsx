@@ -120,11 +120,11 @@ function AppShell() {
       <Sidebar />
       <main className="flex-1 ml-60 p-6 lg:p-8 animate-fade-in">
         <Routes>
-          {/* Public routes */}
-          <Route path="/"         element={<LiveKiosk />}     />
-          <Route path="/roster"   element={<OfficerRoster />} />
-          <Route path="/history"  element={<LogHistory />}    />
-          <Route path="/calendar" element={<Calendar />}      />
+          {/* Attendance data requires an admin account. */}
+          <Route path="/"         element={<ProtectedRoute><LiveKiosk /></ProtectedRoute>}     />
+          <Route path="/roster"   element={<ProtectedRoute><OfficerRoster /></ProtectedRoute>} />
+          <Route path="/history"  element={<ProtectedRoute><LogHistory /></ProtectedRoute>}    />
+          <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>}      />
 
           {/* Admin-only routes */}
           <Route path="/day-config" element={

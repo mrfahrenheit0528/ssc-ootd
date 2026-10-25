@@ -3,29 +3,37 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Council NFC Attendance System – Web Dashboard",
+  "description": "Council NFC Attendance System \u2013 Web Dashboard",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/utils/*.test.js"
   },
   "dependencies": {
     "date-fns": "^3.6.0",
-    "firebase": "^10.12.0",
+    "firebase": "^13.1.0",
     "lucide-react": "^0.400.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",
-    "react-router-dom": "^6.24.0",
-    "xlsx": "^0.18.5"
+    "react-router-dom": "^7.18.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^6.1.2",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
-    "vite": "^5.3.1"
+    "vite": "^8.3.5"
+  },
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.6",
+    "postcss-selector-parser": "^7.1.6"
   }
 }
