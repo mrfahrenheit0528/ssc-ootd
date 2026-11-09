@@ -1,12 +1,11 @@
 // pages/LiveKiosk.jsx
 // -------------------
 // Real-time attendance board for today's events.
-// Uses Firestore onSnapshot to receive live updates the moment a tag is tapped.
+// Uses Supabase Realtime to receive live updates the moment a tag is tapped.
 
 import { useState, useEffect, useRef } from 'react'
-import { collection, query, where, orderBy, onSnapshot, Timestamp } from 'firebase/firestore'
+import { watchRecords } from '../data'
 import { format, startOfDay, endOfDay } from 'date-fns'
-import { db } from '../firebase'
 import { useSemester } from '../contexts/SemesterContext'
 import { Monitor, LogIn, LogOut, Clock, Users, Wifi, WifiOff, GraduationCap } from 'lucide-react'
 
@@ -126,23 +125,20 @@ export default function LiveKiosk() {
   const [newUids, setNewUids]     = useState(new Set())
   const prevUids = useRef(new Set())
 
-  const today = new Date()
-  const todayStart = Timestamp.fromDate(startOfDay(today))
-  const todayEnd   = Timestamp.fromDate(endOfDay(today))
+  const [dayKey, setDayKey] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  const today = new Date(dayKey + 'T12:00:00')
+  useEffect(() => {
+    const timer = setInterval(() => setDayKey(format(new Date(), 'yyyy-MM-dd')), 30000)
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'attendance_logs'),
-      where('timestamp', '>=', todayStart),
-      where('timestamp', '<=', todayEnd),
-      orderBy('timestamp', 'desc'),
-    )
-
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const incoming = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-
+    setLoading(true)
+    prevUids.current = new Set()
+    const date = new Date(dayKey + 'T12:00:00')
+    const unsub = watchRecords('attendance_logs', {
+      from: startOfDay(date), to: endOfDay(date), orderBy: 'timestamp',
+    }, (incoming) => {
         // Detect newly active officer UIDs
         const freshUids = new Set()
         incoming.forEach(doc => {
@@ -160,14 +156,14 @@ export default function LiveKiosk() {
         setConnected(true)
       },
       (err) => {
-        console.error('Firestore snapshot error:', err)
+        console.error('Attendance subscription error:', err)
         setConnected(false)
         setLoading(false)
       },
     )
 
     return () => unsub()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dayKey])
 
   const sessions   = buildSessions(logs)
   const onDutyNow  = sessions.filter(s => !s.clockOut).length

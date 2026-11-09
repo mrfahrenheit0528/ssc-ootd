@@ -2,7 +2,7 @@
 // -------------------
 // Admin page for day configuration.
 //
-// Firestore schema (updated):
+// PostgreSQL schema (updated):
 //   day_config/weekly        → { schedule: { '0': {...}, '1': {...}, ... }, effective_from: 'YYYY-MM-DD' }
 //     - schedule[dayOfWeek]: { type, required_uids, note }
 //     - effective_from: recurring rules only apply ON OR AFTER this date (past records untouched)
@@ -11,8 +11,7 @@
 //   day_config/{YYYY-MM-DD}  → { type, note, required_uids }  (specific date, highest priority)
 
 import { useState, useEffect } from 'react'
-import { collection, doc, getDoc, setDoc, getDocs, deleteDoc } from 'firebase/firestore'
-import { db } from '../firebase'
+import { listRecords, getRecord, saveRecord, deleteRecord } from '../data'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { Settings, Save, Plus, Trash2, X, Info, ChevronDown, ChevronUp, CalendarDays, RotateCcw } from 'lucide-react'
@@ -192,7 +191,7 @@ function DayOverrideModal({ existing, allOfficers, weeklySchedule, onClose, onSa
         ...(useCustomReq ? { required_uids: customReq } : {}),
         updated_at: new Date(),
       }
-      await setDoc(doc(db, 'day_config', date), payload, { merge: true })
+      await saveRecord('day_config', date, payload, { merge: true })
       toast.success(`Override saved for ${format(parseISO(date), 'MMM d, yyyy')}.`)
       onSave()
     } catch (err) {
@@ -290,15 +289,15 @@ export default function DayConfig() {
   useEffect(() => {
     const fetchAll = async () => {
       const [officersSnap, weeklySnap, configSnap] = await Promise.all([
-        getDocs(collection(db, 'officers')),
-        getDoc(doc(db, 'day_config', 'weekly')),
-        getDocs(collection(db, 'day_config')),
+        listRecords('officers'),
+        getRecord('day_config', 'weekly'),
+        listRecords('day_config'),
       ])
 
-      setOfficers(officersSnap.docs.map(d => ({ card_uid: d.id, ...d.data() })))
+      setOfficers(officersSnap)
 
-      if (weeklySnap.exists()) {
-        const data = weeklySnap.data()
+      if (weeklySnap) {
+        const data = weeklySnap
         // Merge saved schedule with built-in defaults to fill any missing days
         const merged = { ...BUILTIN_DEFAULTS }
         if (data.schedule) {
@@ -308,9 +307,9 @@ export default function DayConfig() {
         if (data.effective_from) setEffectiveFrom(data.effective_from)
       }
 
-      const ovrs = configSnap.docs
+      const ovrs = configSnap
         .filter(d => d.id !== 'weekly' && d.id !== 'defaults')
-        .map(d => ({ date: d.id, ...d.data() }))
+        .map(d => ({ ...d, date: d.id }))
         .sort((a, b) => a.date.localeCompare(b.date))
       setOverrides(ovrs)
       setLoading(false)
@@ -321,11 +320,11 @@ export default function DayConfig() {
   const saveWeeklySchedule = async () => {
     setSavingWeekly(true)
     try {
-      // Convert numeric keys to string keys for Firestore
+      // Convert numeric keys to string keys for PostgreSQL
       const schedulePayload = {}
       Object.entries(schedule).forEach(([k, v]) => { schedulePayload[String(k)] = v })
 
-      await setDoc(doc(db, 'day_config', 'weekly'), {
+      await saveRecord('day_config', 'weekly', {
         schedule: schedulePayload,
         effective_from: effectiveFrom,
         updated_at: new Date(),
@@ -346,7 +345,7 @@ export default function DayConfig() {
   const deleteOverride = async (date) => {
     if (!window.confirm(`Delete override for ${format(parseISO(date), 'MMM d, yyyy')}?`)) return
     try {
-      await deleteDoc(doc(db, 'day_config', date))
+      await deleteRecord('day_config', date)
       setOverrides(prev => prev.filter(o => o.date !== date))
       toast.success('Override deleted.')
     } catch (err) {
@@ -355,10 +354,10 @@ export default function DayConfig() {
   }
 
   const refreshOverrides = async () => {
-    const snap = await getDocs(collection(db, 'day_config'))
-    const ovrs = snap.docs
+    const snap = await listRecords('day_config')
+    const ovrs = snap
       .filter(d => d.id !== 'weekly' && d.id !== 'defaults')
-      .map(d => ({ date: d.id, ...d.data() }))
+      .map(d => ({ ...d, date: d.id }))
       .sort((a, b) => a.date.localeCompare(b.date))
     setOverrides(ovrs)
   }

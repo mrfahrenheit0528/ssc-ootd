@@ -3,15 +3,8 @@ main.py
 -------
 Entry point for the NFC Attendance Daemon.
 
-Wires together:
-  - Config loading
-  - SQLite initialisation (offline-first)
-  - Firebase Admin SDK initialisation (optional — daemon works offline without it)
-  - FirebaseSyncer background thread (Phase 3)
-  - AutoCloseScheduler background thread (Phase 4)
-  - State machine
-  - NFC reader polling loop
-  - Graceful shutdown on SIGINT / SIGTERM
+Wires together configuration, durable local attendance, Supabase device RPCs,
+a persistent officer roster cache, the auto-close scheduler, and the NFC reader.
 """
 
 import logging
@@ -23,7 +16,8 @@ from logging.handlers import RotatingFileHandler
 
 import db
 from config import load_config
-from firebase_sync import FirebaseSyncer
+from cloud import CloudClient
+from supabase_sync import SupabaseSyncer, ReaderContext
 from nfc_reader import NfcReader
 from scheduler import AutoCloseScheduler
 from state_machine import StateMachine, TapResult
@@ -90,256 +84,73 @@ def _on_event(uid: str, result: TapResult) -> None:
 # Graceful shutdown
 # ---------------------------------------------------------------------------
 
-_running = True
-
-
-def _handle_signal(signum, frame):  # noqa: ANN001
-    global _running
-    logger.info("Shutdown signal received (%s). Stopping…", signal.Signals(signum).name)
-    _running = False
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-def _init_firebase(cfg) -> object | None:
-    """
-    Attempt to initialise the Firebase Admin SDK.
-
-    Returns the Firestore client on success, or None if the service account key
-    is missing / invalid (daemon continues in offline-only mode).
-    """
-    import os
-    key_path = cfg.service_account_key_path
-    if not os.path.exists(key_path):
-        logger.warning(
-            "serviceAccountKey.json not found at '%s'. "
-            "Running in OFFLINE mode — events will accumulate in SQLite "
-            "and sync once the key is added and the daemon is restarted.",
-            key_path,
-        )
-        return None
-
-    try:
-        import firebase_admin
-        from firebase_admin import credentials, firestore as fb_firestore
-
-        cred = credentials.Certificate(key_path)
-        firebase_admin.initialize_app(cred, {"projectId": cfg.firebase_project_id})
-        client = fb_firestore.client()
-        logger.info("Firebase Admin SDK initialised (project=%s).", cfg.firebase_project_id)
-        return client
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "Firebase initialisation failed: %s. Running in OFFLINE mode.", exc
-        )
-        return None
-
-
-def _publish_live_tap(firestore_client, uid: str) -> None:
-    """Publish the most recent card tap to Firestore so the web modal auto-fills instantly."""
-    if firestore_client is None:
-        return
-    import threading
-    from datetime import datetime, timezone
-
-    def _worker():
-        try:
-            firestore_client.collection("system_settings").document("live_scanner").set({
-                "latest_uid": uid,
-                "timestamp": datetime.now(timezone.utc),
-            }, merge=True)
-            logger.debug("Published live tap uid=%s to Firestore", uid)
-        except Exception as exc:
-            logger.debug("Could not publish live tap: %s", exc)
-
-    threading.Thread(target=_worker, daemon=True).start()
-
-
-class EnrollmentModeWatcher:
-    """
-    Subscribes to system_settings/enrollment_mode in Firestore.
-    When the web enrol-officer modal is open it sets active=true,
-    which causes the daemon to skip process_tap() so that the card
-    tap only auto-fills the UID field and does NOT record attendance.
-    """
-
-    def __init__(self, firestore_client) -> None:
-        self._active = False
-        self._unsubscribe = None
-        if firestore_client is None:
-            return
-
-        ref = firestore_client.collection("system_settings").document("enrollment_mode")
-
-        def _on_snapshot(doc_snapshot, changes, read_time):
-            for doc in doc_snapshot:
-                data = doc.to_dict() or {}
-                was = self._active
-                self._active = bool(data.get("active", False))
-                if self._active != was:
-                    if self._active:
-                        logger.info("[ENROLL] Enrollment mode ACTIVE — taps will not record attendance.")
-                    else:
-                        logger.info("[ENROLL] Enrollment mode CLEARED — normal attendance resumed.")
-
-        self._unsubscribe = ref.on_snapshot(_on_snapshot)
-        logger.info("EnrollmentModeWatcher started.")
-
-    @property
-    def is_active(self) -> bool:
-        return self._active
-
-    def stop(self) -> None:
-        if self._unsubscribe:
-            self._unsubscribe()
-
-
-class OfficerRegistry:
-    """
-    Maintains an in-memory set of enrolled officer UIDs by subscribing to
-    the Firestore `officers` collection via on_snapshot.
-
-    Any card UID not in this set is silently ignored by the daemon —
-    it will NOT be recorded in SQLite or synced to Firestore.
-
-    If Firebase is unavailable (offline mode), `is_enrolled` always
-    returns True so the daemon continues working without a connection.
-    """
-
-    def __init__(self, firestore_client) -> None:
-        self._enrolled: set[str] = set()
-        self._unsubscribe = None
-        self._firebase_available = firestore_client is not None
-
-        if not self._firebase_available:
-            logger.warning(
-                "OfficerRegistry: no Firebase client — all UIDs will be accepted (offline mode)."
-            )
-            return
-
-        def _on_snapshot(col_snapshot, changes, read_time):
-            new_set: set[str] = set()
-            for doc in col_snapshot:
-                new_set.add(doc.id.upper())
-            old_count = len(self._enrolled)
-            self._enrolled = new_set
-            logger.info(
-                "OfficerRegistry updated: %d enrolled officer(s) (was %d).",
-                len(self._enrolled), old_count,
-            )
-
-        self._unsubscribe = firestore_client.collection("officers").on_snapshot(_on_snapshot)
-        logger.info("OfficerRegistry started — watching officers collection.")
-
-    def is_enrolled(self, uid: str) -> bool:
-        """Return True if the UID is a registered officer (or Firebase is offline)."""
-        if not self._firebase_available:
-            return True  # offline fallback: allow all taps
-        return uid.upper() in self._enrolled
-
-    def stop(self) -> None:
-        if self._unsubscribe:
-            self._unsubscribe()
-
-
 def main() -> None:
-    # ── Config ──────────────────────────────────────────────────────────────
     try:
         cfg = load_config()
-    except FileNotFoundError as exc:
-        print(f"[FATAL] {exc}", file=sys.stderr)
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        print(f'[FATAL] {exc}', file=sys.stderr)
         sys.exit(1)
-
     _setup_logging(cfg.log_level)
-    logger.info("=" * 60)
-    logger.info("NFC Attendance Daemon starting")
-    logger.info("=" * 60)
-
-    # ── Database ─────────────────────────────────────────────────────────────
+    db.configure_timezone(cfg.attendance_timezone)
     db_path = cfg.db_path
     if not os.path.isabs(db_path):
         db_path = os.path.join(os.path.dirname(__file__), db_path)
     conn = db.get_connection(db_path)
     db.init_db(conn)
-
-    # ── Firebase (optional — offline fallback if key missing) ────────────────
-    firestore_client = _init_firebase(cfg)
-
-    # ── Background threads ───────────────────────────────────────────────────
-    syncer: FirebaseSyncer | None = None
-    scheduler: AutoCloseScheduler | None = None
-
-    if firestore_client is not None:
-        syncer = FirebaseSyncer(
-            db_conn=conn,
-            firestore_client=firestore_client,
-            sync_interval=cfg.sync_interval_seconds,
-        )
-        syncer.start()
-        syncer.prefetch_officers()  # pre-warm officer name cache to skip Firestore GET on first tap
-        logger.info("FirebaseSyncer thread started.")
-    else:
-        logger.warning("FirebaseSyncer NOT started (no Firebase client).")
-
-    scheduler = AutoCloseScheduler(
-        db_conn=conn,
-        close_time=cfg.auto_close_time,
-    )
-    scheduler.start()
-    logger.info("AutoCloseScheduler thread started (fires at %s).", cfg.auto_close_time)
-
-    # ── State machine ────────────────────────────────────────────────────────
-    sm = StateMachine(cfg=cfg, conn=conn, on_event=_on_event)
-
-    # ── Enrollment mode watcher (skips attendance during officer enrolment) ───
-    enrollment_watcher = EnrollmentModeWatcher(firestore_client)
-
-    # ── Officer registry (rejects taps from unenrolled cards) ────────────
-    officer_registry = OfficerRegistry(firestore_client)
-
-    # ── Signals ──────────────────────────────────────────────────────────────
-    signal.signal(signal.SIGINT, _handle_signal)
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, _handle_signal)
-    if hasattr(signal, "SIGBREAK"):
-        signal.signal(signal.SIGBREAK, _handle_signal)
-
-    # ── NFC reader ───────────────────────────────────────────────────────────
+    cloud = CloudClient(cfg.supabase_url, cfg.supabase_publishable_key, cfg.device_id, cfg.device_token)
+    registry = ReaderContext(conn, cloud)
+    try:
+        registry.refresh()
+        logger.info('Supabase connected; local officer roster refreshed.')
+    except Exception as exc:
+        logger.warning('Starting with the locally cached roster: %s', exc)
+    syncer = SupabaseSyncer(conn, cloud, cfg.sync_interval_seconds)
+    scheduler = AutoCloseScheduler(conn, cfg.auto_close_time)
+    sm = StateMachine(cfg, conn, _on_event)
     reader = NfcReader()
-
-    logger.info("Ready. Waiting for NFC tags… (Ctrl+C to stop)")
-    logger.info("Clock-out tag UID: %s", cfg.clock_out_tag_uid)
-
+    def shutdown(signum, frame):
+        logger.info('Stopping NFC reader...')
+        reader.stop()
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+    if hasattr(signal, 'SIGBREAK'):
+        signal.signal(signal.SIGBREAK, shutdown)
+    registry.start()
+    syncer.start()
+    scheduler.start()
+    logger.info('Ready for NFC cards. Attendance is buffered locally before upload.')
     try:
         for uid in reader.poll():
-            if not _running:
-                break
-            _publish_live_tap(firestore_client, uid)
-            if enrollment_watcher.is_active:
-                logger.info("[ENROLL] Tap uid=%s ignored for attendance (enrollment mode active).", uid)
-            elif uid != cfg.clock_out_tag_uid and not officer_registry.is_enrolled(uid):
-                logger.info("[UNKNOWN] Tap uid=%s ignored — card not enrolled as an officer.", uid)
-            else:
-                result = sm.process_tap(uid)
-                # Trigger an immediate Firestore sync for any event that was recorded
-                if syncer and result in (
-                    TapResult.CLOCKED_IN,
-                    TapResult.CLOCKED_OUT,
-                ):
-                    syncer.trigger()
+            try:
+                # The server decides enrollment mode and applies its expiry.
+                if cloud.tap(uid):
+                    logger.info('Card read for enrollment; attendance skipped.')
+                    continue
+            except Exception:
+                # Known cards still work offline; unknown cards are never admitted.
+                pass
+            if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid):
+                try:
+                    registry.refresh()  # Accept a newly enrolled card without waiting for the periodic refresh.
+                except Exception:
+                    pass
+                if not registry.is_enrolled(uid):
+                    logger.info('Unenrolled card ignored; refresh roster online before first use.')
+                    continue
+            result = sm.process_tap(uid)
+            if result in (TapResult.CLOCKED_IN, TapResult.CLOCKED_OUT):
+                syncer.trigger()
     finally:
         reader.stop()
-        enrollment_watcher.stop()
-        officer_registry.stop()
-        if syncer:
-            syncer.stop()
-        if scheduler:
-            scheduler.stop()
+        registry.stop()
+        syncer.stop()
+        scheduler.stop()
+        # Join before closing their shared SQLite connection.
+        for worker in (registry, syncer, scheduler):
+            worker.join()
         conn.close()
-        logger.info("Daemon stopped cleanly.")
+        logger.info('Daemon stopped; pending events remain safely in SQLite.')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

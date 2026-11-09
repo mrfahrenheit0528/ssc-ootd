@@ -1,16 +1,14 @@
 // pages/OfficerRoster.jsx
 // -----------------------
 // CRUD interface for officers. Supports:
-//  - Admin: add/edit/delete officers, upload photo with canvas compression & Storage/Base64 fallback
-//  - All users: view officer cards with photo & status
+//  - Admin: add/edit/delete officers, upload photo with canvas compression & PostgreSQL binary storage
+//  - Approved members: view officer cards with photo & status
 //  - Admin enrol modal: NFC card auto-fills UID (timestamp-gated)
 //  - Structured council positions: Executive (1 each), College Reps (2 each), Assistant Officers (multiple)
 //  - Historical roster: view archived officer snapshot from any past semester
 
 import { useState, useEffect, useRef } from 'react'
-import { collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp } from 'firebase/firestore'
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { db, storage } from '../firebase'
+import { saveRecord, deleteRecord, watchRecords, watchRecord, uploadPhoto } from '../data'
 import { useAuth } from '../contexts/AuthContext'
 import { useSemester } from '../contexts/SemesterContext'
 import toast from 'react-hot-toast'
@@ -142,12 +140,17 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
   // ── Enrollment mode flag — tells daemon to skip attendance while modal is open ─
   useEffect(() => {
     if (isEdit) return // edit modals don't need to block attendance
-    const enrollRef = doc(db, 'system_settings', 'enrollment_mode')
-    setDoc(enrollRef, { active: true, opened_at: serverTimestamp() }, { merge: true })
-      .catch(err => console.warn('Could not set enrollment_mode:', err))
+    const owner = crypto.randomUUID()
+    const renew = () => saveRecord('system_settings', 'enrollment_mode', {
+      active: true, owner, opened_at: new Date(), expires_at: new Date(Date.now() + 60000),
+    }).catch(err => toast.error('Could not start card enrollment: ' + err.message))
+    renew()
+    const timer = setInterval(renew, 20000)
     return () => {
-      setDoc(enrollRef, { active: false }, { merge: true })
-        .catch(err => console.warn('Could not clear enrollment_mode:', err))
+      clearInterval(timer)
+      // An expiring lease also recovers if the browser crashes or disconnects.
+      saveRecord('system_settings', 'enrollment_mode', { active: false, owner, expires_at: new Date() })
+        .catch(err => console.warn('Enrollment lease will expire:', err))
     }
   }, [isEdit])
 
@@ -155,9 +158,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
   useEffect(() => {
     if (isEdit) return // never overwrite UID on edit
 
-    const unsub = onSnapshot(doc(db, 'system_settings', 'live_scanner'), (snap) => {
-      if (!snap.exists()) return
-      const data = snap.data()
+    const unsub = watchRecord('system_settings', 'live_scanner', (data) => {
       if (!data?.latest_uid || !data?.timestamp) return
 
       const tapMs = data.timestamp?.toMillis?.() ?? 0
@@ -187,8 +188,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
       toast.success('Photo selected & optimized!')
     } catch (err) {
       console.error('Image compression failed:', err)
-      setPhotoFile(file)
-      setPhotoPreview(URL.createObjectURL(file))
+      toast.error('Please choose a valid JPEG or PNG image.')
     }
   }
 
@@ -222,46 +222,18 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
     const firstName = form.first_name ? form.first_name.trim() : ''
     const lastName  = form.last_name ? form.last_name.trim() : ''
     const position  = form.position || ALL_POSITIONS[0]
-    const status    = form.status || 'OFF_DUTY'
 
     if (!uid) return toast.error('Card UID is required.')
     if (!firstName || !lastName) return toast.error('First and last name are required.')
 
     setSaving(true)
     try {
-      let photoUrl = form.photo_url || ''
-
-      // If a new photo file was chosen
-      if (photoFile) {
-        try {
-          // Attempt Firebase Storage with an 8-second timeout; fall back to Base64 if it hangs
-          const uploadTimeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Storage upload timed out')), 8000)
-          )
-          const fileRef = storageRef(storage, `officers/${uid}.jpg`)
-          await Promise.race([
-            (async () => {
-              await uploadBytes(fileRef, photoFile, { contentType: 'image/jpeg' })
-              photoUrl = await getDownloadURL(fileRef)
-            })(),
-            uploadTimeout,
-          ])
-        } catch (storageErr) {
-          console.warn('Storage upload failed or timed out, using Base64 fallback:', storageErr.message)
-          if (photoPreview && photoPreview.startsWith('data:image')) {
-            photoUrl = photoPreview
-          }
-        }
-      }
-
-      await setDoc(doc(db, 'officers', uid), {
-        first_name: firstName,
-        last_name:  lastName,
-        position:   position,
-        status:     status,
-        photo_url:  photoUrl,
-        updated_at: new Date(),
-      }, { merge: true })
+      let photoId = form.photo_url ? (officer?.photo_id ?? null) : null
+      if (photoFile) photoId = await uploadPhoto(photoFile)
+      await saveRecord('officers', uid, {
+        first_name: firstName, last_name: lastName, position,
+        photo_id: photoId, updated_at: new Date(),
+      })
 
       toast.success(isEdit ? 'Officer updated!' : 'Officer enrolled!')
       onSave()
@@ -527,8 +499,8 @@ export default function OfficerRoster() {
       return
     }
 
-    const unsub = onSnapshot(collection(db, 'officers'), (snap) => {
-      setOfficers(snap.docs.map(d => ({ card_uid: d.id, ...d.data() })))
+    const unsub = watchRecords('officers', {}, (rows) => {
+      setOfficers(rows)
       setLoading(false)
     }, err => {
       toast.error('Could not load officers: ' + err.message)
@@ -540,7 +512,7 @@ export default function OfficerRoster() {
   const handleDelete = async (officer) => {
     if (!window.confirm(`Delete ${officer.first_name} ${officer.last_name}? This cannot be undone.`)) return
     try {
-      await deleteDoc(doc(db, 'officers', officer.card_uid))
+      await deleteRecord('officers', officer.card_uid)
       toast.success('Officer deleted.')
     } catch (err) {
       toast.error('Delete failed: ' + err.message)

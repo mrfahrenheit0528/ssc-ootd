@@ -16,7 +16,7 @@ import {
   format, parseISO, getDay, isSameDay, eachDayOfInterval,
   startOfDay, endOfDay, max, min,
 } from 'date-fns'
-import { collection, getDocs } from 'firebase/firestore'
+import { listRecords } from '../data.js'
 
 // ── Built-in Day Defaults ───────────────────────────────────────────────────
 export const BUILTIN_DEFAULTS = {
@@ -72,56 +72,26 @@ export function resolveDay(dayDate, dayConfigMap = {}, weeklySchedule = null, we
 }
 
 // ── Fetch Day Config & Officers in parallel ───────────────────────────────────
-export async function fetchAttendanceContext(db, selectedSemesterId = null, semesters = []) {
-  const activeSem = semesters.find(s => s.id === selectedSemesterId)
-  const hasSnapshot = activeSem?.officer_snapshot && activeSem.officer_snapshot.length > 0
-
-  const [dayConfigSnap, officersSnap] = await Promise.all([
-    getDocs(collection(db, 'day_config')),
-    hasSnapshot ? Promise.resolve(null) : getDocs(collection(db, 'officers')),
+export async function fetchAttendanceContext(selectedSemesterId = null, semesters = []) {
+  const semester = semesters.find(s => s.id === selectedSemesterId)
+  const hasSnapshot = Array.isArray(semester?.officer_snapshot) && semester.status === 'ended'
+  const [configs, officers] = await Promise.all([
+    listRecords('day_config'),
+    hasSnapshot ? Promise.resolve(semester.officer_snapshot) : listRecords('officers'),
   ])
-
   const dayConfigMap = {}
   let weeklySchedule = null
   let weeklyEffectiveFrom = null
-
-  dayConfigSnap.forEach(docSnap => {
-    const data = docSnap.data()
-    if (docSnap.id === 'weekly') {
+  for (const { id, ...data } of configs) {
+    if (id === 'weekly') {
+      weeklySchedule = data.schedule ?? null
       weeklyEffectiveFrom = data.effective_from ?? null
-      if (data.schedule) {
-        weeklySchedule = {}
-        Object.entries(data.schedule).forEach(([k, v]) => {
-          weeklySchedule[Number(k)] = v
-        })
-      }
-    } else {
-      dayConfigMap[docSnap.id] = data
-    }
-  })
-
-  let officersList = []
-  if (hasSnapshot) {
-    officersList = activeSem.officer_snapshot
-  } else if (officersSnap) {
-    officersList = officersSnap.docs.map(d => ({ card_uid: d.id, ...d.data() }))
+    } else dayConfigMap[id] = data
   }
-
-  const officerMap = {}
-  officersList.forEach(o => {
-    if (o.card_uid) officerMap[o.card_uid] = o
-  })
-
-  return {
-    dayConfigMap,
-    weeklySchedule,
-    weeklyEffectiveFrom,
-    officers: officersList,
-    officerMap,
-  }
+  return { dayConfigMap, weeklySchedule, weeklyEffectiveFrom, officers,
+    officerMap: Object.fromEntries(officers.map(o => [o.card_uid, o])) }
 }
 
-// ── Format Helpers ───────────────────────────────────────────────────────────
 export function formatTime(ts) {
   if (!ts) return '—'
   const d = ts?.toDate ? ts.toDate() : (ts instanceof Date ? ts : new Date(ts))

@@ -111,3 +111,11 @@ $RECYCLE.BIN/
 *.sublime-project
 *.swp
 *.swo
+
+# Local credentials, database validation files, and private reader registration.
+.local/
+backups/
+*.dump
+*.backup
+*.sql.gz
+.pytest_cache/

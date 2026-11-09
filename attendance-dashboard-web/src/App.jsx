@@ -63,7 +63,7 @@ function Sidebar() {
         {isAdmin && (
           <>
             <div className="pt-3 pb-1 px-3">
-              <p className="text-xs text-slate-600 font-semibold uppercase tracking-widest">Admin</p>
+              <p className="text-xs text-slate-600 font-semibold uppercase tracking-widest">{isAdmin ? 'Admin' : 'Officer'}</p>
             </div>
             {ADMIN_NAV.map(({ to, label, icon: Icon }) => (
               <NavLink
@@ -87,7 +87,7 @@ function Sidebar() {
               <ShieldCheck className="w-4 h-4 text-brand-400 flex-shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs font-medium text-brand-300 truncate">{user.email}</p>
-                <p className="text-xs text-slate-600">Admin</p>
+                <p className="text-xs text-slate-600">{isAdmin ? 'Admin' : 'Officer'}</p>
               </div>
             </div>
             <button
@@ -105,7 +105,7 @@ function Sidebar() {
             className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
           >
             <ShieldCheck className="w-4 h-4 flex-shrink-0 text-slate-500" />
-            <span className="text-slate-500">Admin Sign In</span>
+            <span className="text-slate-500">Sign In</span>
           </NavLink>
         )}
         <p className="text-xs text-slate-700 text-center pt-1">NFC Attendance System v2.0</p>
@@ -120,7 +120,7 @@ function AppShell() {
       <Sidebar />
       <main className="flex-1 ml-60 p-6 lg:p-8 animate-fade-in">
         <Routes>
-          {/* Attendance data requires an admin account. */}
+          {/* Attendance data requires an approved SSC account. */}
           <Route path="/"         element={<ProtectedRoute><LiveKiosk /></ProtectedRoute>}     />
           <Route path="/roster"   element={<ProtectedRoute><OfficerRoster /></ProtectedRoute>} />
           <Route path="/history"  element={<ProtectedRoute><LogHistory /></ProtectedRoute>}    />
@@ -128,10 +128,10 @@ function AppShell() {
 
           {/* Admin-only routes */}
           <Route path="/day-config" element={
-            <ProtectedRoute><DayConfig /></ProtectedRoute>
+            <ProtectedRoute adminOnly><DayConfig /></ProtectedRoute>
           } />
           <Route path="/semesters" element={
-            <ProtectedRoute><SemesterManager /></ProtectedRoute>
+            <ProtectedRoute adminOnly><SemesterManager /></ProtectedRoute>
           } />
 
           {/* Auth */}

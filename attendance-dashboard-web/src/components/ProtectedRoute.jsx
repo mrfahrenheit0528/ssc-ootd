@@ -7,8 +7,8 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Zap } from 'lucide-react'
 
-export default function ProtectedRoute({ children }) {
-  const { user, isAdmin, loading } = useAuth()
+export default function ProtectedRoute({ children, adminOnly = false }) {
+  const { user, isAdmin, isMember, loading } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -22,9 +22,10 @@ export default function ProtectedRoute({ children }) {
     )
   }
 
-  if (!user || !isAdmin) {
+  if (!user || !isMember) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
+  if (adminOnly && !isAdmin) return <Navigate to="/" replace />
   return children
 }

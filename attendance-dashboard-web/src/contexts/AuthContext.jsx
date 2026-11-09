@@ -1,65 +1,66 @@
-// src/contexts/AuthContext.jsx
-// ----------------------------
-// Provides Firebase Auth state + isAdmin role check throughout the app.
-// Admin check: a document must exist at admins/{uid} in Firestore.
-// To grant admin: Firebase Console → Firestore → admins → Add document
-// with the user's UID as document ID (any field, e.g. role: "admin").
-
 import { createContext, useContext, useEffect, useState } from 'react'
-import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut as fbSignOut,
-} from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
-import { auth, db } from '../firebase'
+import { supabase } from '../supabase'
+import { clearPhotoCache } from '../data'
 
 const AuthContext = createContext(null)
-
 export function AuthProvider({ children }) {
-  const [user,    setUser]    = useState(null)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [user, setUser] = useState(null)
+  const [role, setRole] = useState(null)
   const [loading, setLoading] = useState(true)
-
+  const [authError, setAuthError] = useState('')
   useEffect(() => {
     let generation = 0
-    const unsub = onAuthStateChanged(auth, async (u) => {
+    let stopped = false
+    let previousId = null
+    let roleChannel = null
+    const apply = async session => {
       const current = ++generation
-      setLoading(true)
-      setIsAdmin(false)
+      const u = session?.user ?? null
       setUser(u)
-      if (u) {
-        // Check admins collection
-        try {
-          const snap = await getDoc(doc(db, 'admins', u.uid))
-          if (current !== generation) return
-          setIsAdmin(snap.exists())
-        } catch {
-          if (current !== generation) return
-          setIsAdmin(false)
-        }
-      } else {
-        setIsAdmin(false)
+      setAuthError('')
+      if ((u?.id ?? null) !== previousId) {
+        setRole(null)
+        setLoading(true)
+        clearPhotoCache()
+        if (roleChannel) supabase.removeChannel(roleChannel)
+        roleChannel = null
+        previousId = u?.id ?? null
+        if (u) roleChannel = supabase.channel(`ssc-role-${u.id}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'user_roles', filter: `user_id=eq.${u.id}` }, () => apply(session))
+          .subscribe()
       }
-      setLoading(false)
+      if (u) {
+        const { data, error } = await supabase.from('user_roles').select('role').eq('user_id', u.id).maybeSingle()
+        if (stopped || current !== generation) return
+        setRole(data?.role ?? null)
+        if (error) setAuthError('Could not check account permissions. Please sign in again.')
+        else if (!data) setAuthError('Your account needs an SSC officer or admin role. Contact your administrator.')
+      }
+      if (!stopped && current === generation) setLoading(false)
+    }
+    // Database calls must run outside the Supabase auth callback lock.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setTimeout(() => { if (!stopped) apply(session) }, 0)
     })
     return () => {
+      stopped = true
       generation++
-      unsub()
+      subscription.unsubscribe()
+      if (roleChannel) supabase.removeChannel(roleChannel)
     }
   }, [])
-
-  const login = (email, password) =>
-    signInWithEmailAndPassword(auth, email, password)
-
-  const logout = () => fbSignOut(auth)
-
-  return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  )
+  const login = async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+    return data
+  }
+  const logout = async () => {
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+    clearPhotoCache()
+    setUser(null)
+    setRole(null)
+  }
+  return <AuthContext.Provider value={{ user, role, isAdmin: role === 'admin', isMember: role === 'admin' || role === 'officer', loading, authError, login, logout }}>{children}</AuthContext.Provider>
 }
-
-// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext)

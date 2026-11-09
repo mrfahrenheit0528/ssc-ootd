@@ -1,12 +1,15 @@
 {
-  "_comment": "Copy this file to config.json and fill in your values. config.json is gitignored.",
-  "clock_out_tag_uid": "REPLACE_WITH_YOUR_CLOCK_OUT_TAG_UID",
-  "service_account_key_path": "serviceAccountKey.json",
-  "firebase_project_id": "your-firebase-project-id",
+  "_comment": "Copy to config.json. Use the project publishable key and restricted reader credentials, never service_role.",
+  "clock_out_tag_uid": "REPLACE_WITH_CLOCK_OUT_TAG_UID",
+  "supabase_url": "https://YOUR_PROJECT_REF.supabase.co",
+  "supabase_publishable_key": "YOUR_PUBLISHABLE_KEY",
+  "device_id": "GENERATED_BY_REGISTER_READER_SCRIPT",
+  "device_token": "GENERATED_BY_REGISTER_READER_SCRIPT",
+  "attendance_timezone": "Asia/Manila",
   "sync_interval_seconds": 10,
   "debounce_seconds": 5,
   "clock_out_window_seconds": 15,
   "auto_close_time": "21:00",
-  "db_path": "attendance.db",
+  "db_path": "attendance-supabase.db",
   "log_level": "INFO"
 }

@@ -152,8 +152,8 @@ class StateMachine:
             return TapResult.IGNORED_ALREADY_CLOCKED_IN
 
         # No record today (None) or previously clocked out (OFF_DUTY after auto-close)
-        db.log_event(self._conn, uid, "CLOCK_IN")
-        db.set_daily_status(self._conn, uid, "ON_DUTY")
+        if not db.record_transition(self._conn, uid, "CLOCK_IN"):
+            return TapResult.IGNORED_ALREADY_CLOCKED_IN
         logger.info("CLOCK_IN logged for uid=%s.", uid)
         return TapResult.CLOCKED_IN
 
@@ -168,8 +168,8 @@ class StateMachine:
             )
             return TapResult.IGNORED_NOT_ON_DUTY
 
-        db.log_event(self._conn, uid, "CLOCK_OUT")
-        db.set_daily_status(self._conn, uid, "OFF_DUTY")
+        if not db.record_transition(self._conn, uid, "CLOCK_OUT"):
+            return TapResult.IGNORED_NOT_ON_DUTY
         logger.info("CLOCK_OUT logged for uid=%s.", uid)
 
         self._cancel_timer()

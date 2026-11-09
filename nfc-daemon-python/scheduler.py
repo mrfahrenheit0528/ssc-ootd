@@ -7,7 +7,7 @@ At 21:00 daily, this job:
   1. Queries daily_state for every officer still marked ON_DUTY.
   2. Inserts a CLOCK_OUT row (is_auto_closed=True) into sync_queue for each.
   3. Flips their daily_state to OFF_DUTY.
-  4. The FirebaseSyncer thread picks those rows up on its next cycle.
+  4. The SupabaseSyncer thread picks those rows up on its next cycle.
 
 Implementation
 --------------
@@ -84,9 +84,8 @@ class AutoCloseScheduler(threading.Thread):
         for row in on_duty_rows:
             uid = row["card_uid"]
             try:
-                db.log_event(self._conn, uid, "CLOCK_OUT", is_auto_closed=True)
-                db.set_daily_status(self._conn, uid, "OFF_DUTY")
-                count += 1
+                if db.record_transition(self._conn, uid, "CLOCK_OUT", is_auto_closed=True):
+                    count += 1
                 logger.info("Auto-closed officer uid=%s", uid)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to auto-close uid=%s: %s", uid, exc)

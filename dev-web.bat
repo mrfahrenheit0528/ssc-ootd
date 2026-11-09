@@ -18,7 +18,7 @@ if not exist "node_modules\" (
 
 if not exist ".env" (
     echo [WARNING] .env file not found in attendance-dashboard-web\
-    echo Please copy .env.example to .env and configure your Firebase credentials.
+    echo Please copy .env.example to .env and configure your Supabase project URL and publishable key.
     pause
 )
 

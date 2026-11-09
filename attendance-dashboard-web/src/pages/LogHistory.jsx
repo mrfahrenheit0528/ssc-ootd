@@ -4,11 +4,7 @@
 // Admins also get: edit entry, delete entry, add manual entry.
 
 import { useState, useEffect, useCallback } from 'react'
-import {
-  collection, query, where, orderBy, getDocs, addDoc,
-  doc, updateDoc, deleteDoc, Timestamp,
-} from 'firebase/firestore'
-import { db } from '../firebase'
+import { listRecords, updateRecord, deleteRecord, addRecord, Instant } from '../data'
 import { useAuth } from '../contexts/AuthContext'
 import { useSemester } from '../contexts/SemesterContext'
 import { format, startOfDay, endOfDay, subDays } from 'date-fns'
@@ -55,16 +51,15 @@ function LogEditModal({ log, officers, onClose, onSave }) {
         card_uid:        officerUid.toUpperCase().trim(),
         officer_name:    selectedOfficer ? `${selectedOfficer.first_name} ${selectedOfficer.last_name}` : officerUid,
         type,
-        timestamp:       Timestamp.fromDate(ts),
+        timestamp:       Instant.fromDate(ts),
         is_auto_closed:  isAuto,
-        synced:          1,
         manually_edited: true,
       }
       if (isAdd) {
-        await addDoc(collection(db, 'attendance_logs'), payload)
+        await addRecord('attendance_logs', payload)
         toast.success('Log entry added.')
       } else {
-        await updateDoc(doc(db, 'attendance_logs', log.id), payload)
+        await updateRecord('attendance_logs', log.id, payload)
         toast.success('Log entry updated.')
       }
       onSave()
@@ -184,7 +179,7 @@ export default function LogHistory() {
 
   // Load day config and officers context for assignment resolution
   useEffect(() => {
-    fetchAttendanceContext(db, selectedSemester, semesters)
+    fetchAttendanceContext(selectedSemester, semesters)
       .then(ctx => {
         setDayConfigMap(ctx.dayConfigMap)
         setWeeklySchedule(ctx.weeklySchedule)
@@ -198,16 +193,10 @@ export default function LogHistory() {
   const fetchRange = useCallback(async (fromStr, toStr) => {
     setLoading(true)
     try {
-      const from = Timestamp.fromDate(startOfDay(new Date(fromStr + 'T00:00:00')))
-      const to   = Timestamp.fromDate(endOfDay(new Date(toStr   + 'T00:00:00')))
-      const q = query(
-        collection(db, 'attendance_logs'),
-        where('timestamp', '>=', from),
-        where('timestamp', '<=', to),
-        orderBy('timestamp', 'desc'),
-      )
-      const snap = await getDocs(q)
-      setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const from = Instant.fromDate(startOfDay(new Date(fromStr + 'T00:00:00')))
+      const to   = Instant.fromDate(endOfDay(new Date(toStr   + 'T00:00:00')))
+      const rows = await listRecords('attendance_logs', { from: from.toDate(), to: to.toDate(), orderBy: 'timestamp' })
+      setLogs(rows)
       setFetched(true)
     } catch (err) {
       toast.error('Failed to load logs: ' + err.message)
@@ -245,7 +234,7 @@ export default function LogHistory() {
   const handleDelete = async (log) => {
     if (!window.confirm('Delete this log entry permanently?')) return
     try {
-      await deleteDoc(doc(db, 'attendance_logs', log.id))
+      await deleteRecord('attendance_logs', log.id)
       setLogs(prev => prev.filter(l => l.id !== log.id))
       toast.success('Entry deleted.')
     } catch (err) {

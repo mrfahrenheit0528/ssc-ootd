@@ -1,94 +1,61 @@
 # SSC NFC Attendance System
 
-Tap-to-log attendance for student council officers. Officers tap their NFC ID
-card on a USB reader, and their attendance shows up live on a web dashboard.
+Officers tap their NFC cards on the SSC PC. A native Python reader records
+attendance in SQLite and uploads it to Supabase PostgreSQL. The React dashboard
+is hosted separately so admins and approved officers can view uploaded records
+even when the reader PC is off.
 
-The reader keeps working when the internet drops: every tap is saved on the
-local PC first and uploaded to the cloud as soon as the connection returns.
+## Start the migration
 
----
+Follow **[SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md)**, starting with a new Supabase
+Free project. Firebase development data is not imported. No Docker is required.
+The code is migrated; cloud schema, accounts, credentials, and website hosting
+must still be configured using the guide.
 
 ## Features
 
-- **One-tap clock-in.** Officers tap their card once when they arrive.
-- **Supervised clock-out.** A dedicated "clock-out tag" opens a 15-second
-  window in which the next officer tap clocks that officer out, so a stray
-  tap can't end someone's shift by accident.
-- **Automatic end of day.** Anyone still clocked in at 9 PM is clocked out
-  automatically and flagged as auto-closed.
-- **Works offline.** Taps are buffered in a local SQLite database and synced
-  to Firebase when the connection is back.
-- **Live kiosk.** A real-time board of who is on duty today.
-- **Officer roster.** Officer cards with photos, grouped by council position.
-  Admins enrol new officers by tapping their card on the reader.
-- **Attendance calendar.** A monthly view of each day's attendance, with
-  per-day schedules (regular day, no classes, and so on) and the officers
-  required to be present.
-- **Semesters.** Each semester keeps a snapshot of that term's roster, so past
-  records stay accurate after officers change.
-- **Reports.** Export attendance to CSV or a multi-sheet Excel workbook.
+- NFC clock-in and supervised clock-out through a dedicated clock-out tag.
+- SQLite offline queue with persistent event UUIDs for duplicate-safe retries.
+- Persistent officer cache for known-card attendance after an offline restart.
+- Cloud sign-in: admins manage records; approved officers have viewing access.
+- Live attendance, officer roster, monthly calendar, schedules, and semesters.
+- Compressed officer photos stored directly as PostgreSQL binary data.
+- Archived roster snapshots retain their original photo references.
+- CSV and Excel exports with assigned/voluntary attendance calculations.
+- Local daily auto-close while the reader daemon is running.
 
-## How it works
+## Architecture
 
 ```mermaid
 flowchart LR
-    Card[NFC card] -->|tap| Reader[ACR122U reader]
-    Reader --> Daemon[Python daemon<br/>on a Windows PC]
-    Daemon --> SQLite[(Local SQLite<br/>offline buffer)]
-    SQLite -->|sync when online| Firestore[(Firebase<br/>Firestore)]
-    Firestore -->|live updates| Dashboard[React web dashboard]
+    NFC[NFC reader] --> Daemon[Native Python daemon]
+    Daemon --> SQLite[(Local SQLite queue)]
+    SQLite -->|scoped device API| Cloud[(Supabase PostgreSQL)]
+    Auth[Supabase Auth] --> Web[Cloud-hosted React dashboard]
+    Cloud -->|API and Realtime| Web
 ```
 
-1. A small Python program runs in the background on the PC the reader is
-   plugged into. It reads each card's ID and decides whether the tap is a
-   clock-in or a clock-out.
-2. The tap is written to a local SQLite database immediately, so nothing is
-   lost if the network is down.
-3. A background thread uploads pending taps to Firebase Firestore.
-4. The web dashboard listens to Firestore and updates as soon as new taps
-   arrive.
+The SSC PC only needs the reader program, its local queue, and the NFC driver.
+It does not host PostgreSQL or the website. Pending offline events become
+visible to other devices after the reader reconnects and uploads them.
 
-## Dashboard access
+## Repository
 
-The supplied Firebase rules require an admin account for all attendance data.
-Visitors are redirected to sign in. Admins can view the kiosk, manage officers,
-export and edit attendance, configure schedules, and manage semesters.
-
-Officer names, photos, card IDs and attendance history should stay private when
-publishing the source code. A public kiosk would need a separate view containing
-only approved information. Apply the rules in the [developer guide](DEV_SETUP.md)
-in Firebase; repository changes alone do not update the live service.
-
-## Built with
-
-| Part | Technology |
+| Location | Purpose |
 |---|---|
-| Card reader | ACS ACR122U (USB, PC/SC) |
-| Background daemon | Python, pyscard, SQLite, `firebase-admin`, `schedule` |
-| Database & auth | Firebase Firestore, Authentication, Storage |
-| Web dashboard | React 18, Vite, Tailwind CSS, React Router, SheetJS |
+| `attendance-dashboard-web/` | React, Vite, Tailwind, Supabase JavaScript client |
+| `nfc-daemon-python/` | NFC reader, state machine, SQLite queue, scoped HTTPS RPCs |
+| `docs/` | Developer and Supabase setup guides |
+| `supabase/migrations/` | PostgreSQL schema, role permissions, device RPCs, Realtime |
+| `scripts/register_reader.py` | Generate device credentials and registration SQL |
+| `scripts/test_database.py` | Disposable PostgreSQL integration test harness |
+| `setup-windows.bat` | Personal development PC dependencies |
+| `setup-reader.bat` | Reader-only dependencies for the SSC PC |
 
-## Repository layout
+See [DEV_SETUP.md](docs/DEV_SETUP.md) for developer commands and
+[SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md) for cloud provisioning, account roles,
+reader installation, website hosting, backups, and remaining enhancements.
 
-```
-ssc-ootd/
-├── nfc-daemon-python/          # Background program that reads the NFC reader
-├── attendance-dashboard-web/   # React web dashboard
-├── setup-windows.bat           # One-click developer setup (Windows)
-├── dev-web.bat                 # Start the dashboard locally
-├── dev-daemon.bat              # Start the daemon with a visible console
-└── DEV_SETUP.md                # Developer guide
-```
-
-## Running it yourself
-
-You'll need your own Firebase project, Node.js 22.12+ or 24+, Python 3.10+, and an
-ACR122U reader. The dashboard also runs without a reader.
-
-See **[DEV_SETUP.md](DEV_SETUP.md)** for full setup instructions.
-
-> [!NOTE]
-> Use your own Firebase project. Keep service-account keys, local configuration,
-> databases and attendance exports out of Git. Firebase web configuration is
-> visible in the browser; deployed security rules protect the data.
-> Storage photo uploads require Blaze billing and are optional on Spark.
+Configuration files, reader tokens, databases, and attendance exports stay out
+of Git. The dashboard uses a public/publishable key plus row-level security;
+never place a database password or service-role key in browser configuration.

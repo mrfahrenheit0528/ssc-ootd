@@ -1,20 +1,17 @@
 // pages/Calendar.jsx
 // ------------------
-// Monthly attendance calendar. Public (read-only for all users).
+// Monthly attendance calendar. Read-only for approved SSC accounts.
 // Supports viewing past semesters with historical officer snapshots.
 // Queries attendance_logs + day_config + officers/snapshot for the selected month.
 // Shows per-day status, attendance ratio, and a slide-in day detail drawer.
 
 import { useState, useEffect, useCallback } from 'react'
-import {
-  collection, query, where, getDocs, doc, getDoc, Timestamp,
-} from 'firebase/firestore'
+import { listRecords, getRecord } from '../data'
 import {
   startOfMonth, endOfMonth, eachDayOfInterval,
   getDay, format, isSameDay, isToday, isBefore, startOfDay,
   addMonths, subMonths, parseISO,
 } from 'date-fns'
-import { db } from '../firebase'
 import { useSemester } from '../contexts/SemesterContext'
 import {
   CalendarDays, ChevronLeft, ChevronRight, X, Clock,
@@ -348,32 +345,26 @@ export default function Calendar() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const logsQ = query(
-        collection(db, 'attendance_logs'),
-        where('timestamp', '>=', Timestamp.fromDate(monthStart)),
-        where('timestamp', '<=', Timestamp.fromDate(monthEnd)),
-      )
-
       // If a past semester with snapshot is chosen, use its snapshot, else live officers
       const activeSemObj = semesters.find(s => s.id === selectedSemester)
-      const hasSnapshot = activeSemObj?.officer_snapshot && activeSemObj.officer_snapshot.length > 0
+      const hasSnapshot = activeSemObj?.status === 'ended' && Array.isArray(activeSemObj.officer_snapshot)
 
       const [logsSnap, officersSnap, weeklySnap] = await Promise.all([
-        getDocs(logsQ),
-        hasSnapshot ? Promise.resolve(null) : getDocs(collection(db, 'officers')),
-        getDoc(doc(db, 'day_config', 'weekly')),
+        listRecords('attendance_logs', { from: monthStart, to: monthEnd, orderBy: 'timestamp' }),
+        hasSnapshot ? Promise.resolve(null) : listRecords('officers'),
+        getRecord('day_config', 'weekly'),
       ])
 
-      setLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setLogs(logsSnap)
 
       if (hasSnapshot) {
         setOfficers(activeSemObj.officer_snapshot)
       } else if (officersSnap) {
-        setOfficers(officersSnap.docs.map(d => ({ card_uid: d.id, ...d.data() })))
+        setOfficers(officersSnap)
       }
 
-      if (weeklySnap.exists()) {
-        const data = weeklySnap.data()
+      if (weeklySnap) {
+        const data = weeklySnap
         const sched = {}
         if (data.schedule) {
           Object.entries(data.schedule).forEach(([k, v]) => { sched[Number(k)] = v })
@@ -390,8 +381,8 @@ export default function Calendar() {
       const configMap = {}
       await Promise.all(days.map(async (day) => {
         const ds = format(day, 'yyyy-MM-dd')
-        const snap = await getDoc(doc(db, 'day_config', ds))
-        if (snap.exists()) configMap[ds] = snap.data()
+        const snap = await getRecord('day_config', ds)
+        if (snap) configMap[ds] = snap
       }))
       setDayConfig(configMap)
     } catch (err) {

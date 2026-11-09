@@ -2,7 +2,7 @@
 // -------------------------
 // Admin-only page to start, end, reactivate (unarchive), edit, and manage semesters.
 //
-// Firestore: semesters/{id}
+// PostgreSQL: semesters/{id}
 //   id:               'sem_...' (auto-generated)
 //   name:             '1st Semester AY 2026-2027'
 //   start_date:       'YYYY-MM-DD'
@@ -14,11 +14,8 @@
 // Admins can unarchive any past semester at any time.
 
 import { useState } from 'react'
-import {
-  collection, doc, getDocs, setDoc, updateDoc, deleteDoc, Timestamp,
-} from 'firebase/firestore'
+import { saveRecord, updateRecord, deleteRecord, Instant, archiveSemester, activateSemester } from '../data'
 import { format, parseISO } from 'date-fns'
-import { db } from '../firebase'
 import { useSemester } from '../contexts/SemesterContext'
 import toast from 'react-hot-toast'
 import {
@@ -50,7 +47,7 @@ function EditSemesterModal({ semester, onClose, onSave }) {
 
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'semesters', semester.id), {
+      await updateRecord('semesters', semester.id, {
         name:       name.trim(),
         start_date: startDate,
         end_date:   semester.status === 'ended' ? (endDate || null) : null,
@@ -137,13 +134,13 @@ function StartSemesterForm({ onStarted }) {
     setSaving(true)
     try {
       const id = makeSemesterId()
-      await setDoc(doc(db, 'semesters', id), {
+      await saveRecord('semesters', id, {
         name:             name.trim(),
         start_date:       startDate,
         end_date:         null,
         status:           'active',
         officer_snapshot: [],
-        created_at:       Timestamp.now(),
+        created_at:       Instant.now(),
       })
       toast.success(`Semester "${name.trim()}" started!`)
       setName('')
@@ -213,27 +210,7 @@ function ActiveSemesterCard({ semester, onEdit }) {
   const handleEndSemester = async () => {
     setEnding(true)
     try {
-      // Take a snapshot of current officers with safe fallbacks
-      const officersSnap = await getDocs(collection(db, 'officers'))
-      const snapshot = officersSnap.docs.map(d => {
-        const data = d.data() || {}
-        return {
-          card_uid:   d.id || '',
-          first_name: data.first_name || '',
-          last_name:  data.last_name || '',
-          position:   data.position || 'Officer',
-          photo_url:  data.photo_url || '',
-        }
-      })
-
-      const safeEndDate = endDate || format(new Date(), 'yyyy-MM-dd')
-
-      await updateDoc(doc(db, 'semesters', semester.id), {
-        status:           'ended',
-        end_date:         safeEndDate,
-        officer_snapshot: snapshot,
-        ended_at:         Timestamp.now(),
-      })
+      await archiveSemester(semester.id, endDate || format(new Date(), 'yyyy-MM-dd'))
       toast.success(`Semester "${semester.name}" has been ended and archived.`)
       setConfirm(false)
     } catch (err) {
@@ -327,32 +304,7 @@ function PastSemestersList({ semesters, activeSemester, onEdit }) {
 
     setReactivating(targetSem.id)
     try {
-      // 1. If there's an active semester, snapshot and archive it
-      if (activeSemester) {
-        const officersSnap = await getDocs(collection(db, 'officers'))
-        const snapshot = officersSnap.docs.map(d => {
-          const data = d.data() || {}
-          return {
-            card_uid:   d.id || '',
-            first_name: data.first_name || '',
-            last_name:  data.last_name || '',
-            position:   data.position || 'Officer',
-            photo_url:  data.photo_url || '',
-          }
-        })
-        await updateDoc(doc(db, 'semesters', activeSemester.id), {
-          status:           'ended',
-          end_date:         format(new Date(), 'yyyy-MM-dd'),
-          officer_snapshot: snapshot,
-          ended_at:         Timestamp.now(),
-        })
-      }
-
-      // 2. Reactivate the target semester
-      await updateDoc(doc(db, 'semesters', targetSem.id), {
-        status:   'active',
-        end_date: null,
-      })
+      await activateSemester(targetSem.id)
 
       toast.success(`"${targetSem.name}" is now the active semester!`)
     } catch (err) {
@@ -365,7 +317,7 @@ function PastSemestersList({ semesters, activeSemester, onEdit }) {
   const handleDelete = async (sem) => {
     if (!window.confirm(`Permanently delete semester record "${sem.name}"? This cannot be undone.`)) return
     try {
-      await deleteDoc(doc(db, 'semesters', sem.id))
+      await deleteRecord('semesters', sem.id)
       toast.success('Semester record deleted.')
     } catch (err) {
       toast.error('Delete failed: ' + err.message)

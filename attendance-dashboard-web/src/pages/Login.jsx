@@ -1,19 +1,21 @@
 // src/pages/Login.jsx
 // -------------------
-// Admin login is required to view attendance data.
-// Admins: create account in Firebase Console → Authentication → Add user.
-// Then add their UID to Firestore: admins/{uid} → { role: "admin" }
+// Sign in with an account provisioned in Supabase Auth and public.user_roles.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Zap, Mail, Lock, LogIn, Eye, EyeOff } from 'lucide-react'
 
 export default function Login() {
-  const { login }   = useAuth()
+  const { login, isMember, loading: checking, authError } = useAuth()
   const navigate    = useNavigate()
   const location    = useLocation()
   const from        = location.state?.from?.pathname || '/'
+
+  useEffect(() => {
+    if (!checking && isMember) navigate(from, { replace: true })
+  }, [checking, isMember, navigate, from])
 
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
@@ -27,16 +29,9 @@ export default function Login() {
     setLoading(true)
     try {
       await login(email, password)
-      navigate(from, { replace: true })
+      // AuthProvider checks membership before redirecting.
     } catch (err) {
-      const map = {
-        'auth/invalid-credential':    'Invalid email or password.',
-        'auth/user-not-found':         'No account found with this email.',
-        'auth/wrong-password':         'Incorrect password.',
-        'auth/too-many-requests':      'Too many failed attempts. Please wait and try again.',
-        'auth/invalid-email':          'Please enter a valid email address.',
-      }
-      setError(map[err.code] ?? `Login failed: ${err.message}`)
+      setError(err.message || 'Sign in failed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -54,14 +49,14 @@ export default function Login() {
           <div className="w-14 h-14 rounded-2xl bg-brand-600/30 border border-brand-500/40 flex items-center justify-center mb-4 shadow-lg shadow-brand-500/20">
             <Zap className="w-7 h-7 text-brand-400" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Admin Sign In</h1>
+          <h1 className="text-2xl font-bold text-white">SSC Sign In</h1>
           <p className="text-slate-400 text-sm mt-1">SSC Attendance Dashboard</p>
         </div>
 
         <div className="card p-6 space-y-5">
-          {error && (
+          {(error || authError) && (
             <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-xl">
-              {error}
+              {error || authError}
             </div>
           )}
 
@@ -124,7 +119,7 @@ export default function Login() {
           </form>
 
           <p className="text-xs text-slate-600 text-center pt-2">
-            Attendance data requires an admin account — contact your administrator for access.
+            Attendance data requires an approved SSC account — contact your administrator for access.
           </p>
         </div>
       </div>
