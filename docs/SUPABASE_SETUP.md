@@ -549,6 +549,7 @@ and [current pricing](https://supabase.com/pricing).
 | `npm` or `python` is not recognized | Install the required tool, then open a new terminal |
 | Setup fails with `swig.exe` while installing `pyscard==2.0.7` | Update the repository and rerun `setup-reader.bat`; see Step 5A |
 | No reader is found | Check the USB connection, reader driver, and Windows Smart Card service |
+| Reader warns `GET UID APDU returned SW1=63 SW2=00` | That UID read failed. Remove and present one card steadily until `Tag detected` appears; check for the clock-in/out confirmation. Occasional warnings followed by success can be transient. Persistent failures need a reader/card/USB check; the code alone does not identify the cause. |
 | Card UID does not fill in | Keep the Add officer form open, ensure the reader is online, and verify device registration from Step 5C |
 | Events stay only on the reader PC | Check internet access, project pause status, and the reader's `enabled` field |
 

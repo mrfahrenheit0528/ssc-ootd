@@ -137,3 +137,15 @@ See [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups
   at user sign-in. It does not record cards while the PC is off or logged out.
 - See the final sections of [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for known
   limitations and enhancements to schedule after the cloud migration is live.
+
+## Dashboard UI conventions
+
+Use the shared `.input`, button, card, and calendar interaction styles. Native
+selects and their option lists use an opaque dark background and light text,
+including Windows/Edge dropdown popups. Keep `color-scheme: dark` on selects.
+
+Reuse the existing `animate-slide-up` page/dialog entrance and `animate-fade-in`
+modal backdrop animations, plus the shared button hover/focus/press transitions.
+Keep calendar schedule markers in `ScheduleIndicator.jsx`: pushpin means Scheduled
+and minus means Unscheduled. Show the shared legend, accessible labels, and title
+tooltips; keep full words in forms and reports.

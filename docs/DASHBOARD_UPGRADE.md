@@ -95,6 +95,10 @@ Add a note if helpful, then click **Save day**. Holiday has been removed; existi
 Holiday dates become No Classes. Regular is the default for unmarked dates.
 Weekly Unscheduled days have no recurring required officers.
 
+Both calendars use **📌 Scheduled** and **➖ Unscheduled** markers, with a legend
+and hover labels. The icons indicate the saved schedule; No Classes and Optional
+still suppress required attendance. Full labels remain in the schedule forms.
+
 Normally leave **Use a different officer list for this date** unchecked: that
 inherits the weekly officers. Checking it with no officers selected explicitly
 means nobody is required. No Classes and Optional suppress required attendance

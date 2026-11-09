@@ -6,6 +6,7 @@ import { saveWeek, saveCalendarDay } from '../data'
 import { useSemester } from '../contexts/SemesterContext'
 import { fetchAttendanceContext } from '../utils/reportExport'
 import { emptyWeek, resolveDay, DAY_TYPE_LABELS } from '../utils/attendance'
+import { ScheduleIndicator, ScheduleLegend } from '../components/ScheduleIndicator'
 import { dateKey } from '../utils/attendanceTime'
 
 const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
@@ -22,8 +23,8 @@ function DayEditor({ day, context, semesterId, officers, onClose, onSaved }) {
     try { await saveCalendarDay(semesterId, day, type, note, custom ? uids : null); await onSaved(); onClose(); toast.success('Calendar day saved.') }
     catch (e) { toast.error(e.message) } finally { setSaving(false) }
   }
-  return <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="calendar-editor-title">
-    <div className="card bg-slate-900 p-6 w-full max-w-lg max-h-[90vh] overflow-auto space-y-4">
+  return <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="calendar-editor-title">
+    <div className="card bg-slate-900 p-6 w-full max-w-lg max-h-[90vh] overflow-auto space-y-4 animate-slide-up">
       <div className="flex justify-between"><h2 id="calendar-editor-title" className="font-semibold">{format(parseISO(day), 'MMMM d, yyyy')}</h2><button disabled={saving} onClick={onClose} aria-label="Close day editor"><X /></button></div>
       <label className="label">Calendar day type</label>
       <select className="input" value={type} onChange={e => setType(e.target.value)}>{Object.entries(DAY_TYPE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -76,7 +77,7 @@ export default function DayConfig() {
   }
   const updateDay = (day, patch) => {setDirty(true);setSchedule(old => ({ ...old, [day]: { ...old[day], ...patch } }))}
   const days = eachDayOfInterval({start:startOfMonth(month),end:endOfMonth(month)})
-  return <div className="space-y-6 max-w-5xl">
+  return <div className="space-y-6 max-w-5xl animate-slide-up">
     <h1 className="text-2xl font-bold flex gap-3"><Settings />Day Configuration</h1>
     <p className="text-sm text-slate-400">Set the semester's weekly assignments, then use the calendar to mark Regular, No Classes, or Optional dates.</p>
     <label className="label">Semester</label><select className="input max-w-lg" disabled={loading || saving} value={semesterId} onChange={e => changeSemester(e.target.value)}><option value="">Select a semester</option>{semesters.map(s => <option key={s.id} value={s.id}>{s.name}{s.status === 'ended' ? ' (Archived - read-only)' : ''}</option>)}</select>
@@ -98,10 +99,11 @@ export default function DayConfig() {
       </section>
       <section className="card p-4 space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Calendar day types</h2><div className="flex items-center gap-3"><button className="btn-secondary p-2" aria-label="Previous month" onClick={() => setMonth(m => subMonths(m,1))}><ChevronLeft /></button><span>{format(month,'MMMM yyyy')}</span><button className="btn-secondary p-2" aria-label="Next month" onClick={() => setMonth(m => addMonths(m,1))}><ChevronRight /></button></div></div>
         <p className="text-xs text-slate-400">Click a date to set its day type and note. The saved weekly schedule supplies the assignments.</p>
+        <ScheduleLegend />
         <div className="grid grid-cols-7 gap-1 sm:gap-2">{WEEKDAYS.map(d => <div key={d} className="text-xs text-center text-slate-400">{d.slice(0,3)}</div>)}{Array.from({length:days[0].getDay()},(_,i) => <div key={`pad-${i}`} />)}{days.map(day => {
           const ds = format(day,'yyyy-MM-dd'), cfg = resolveDay(ds,context)
           const outside = ds < term.start_date || (term.end_date && ds > term.end_date)
-          return <button key={ds} disabled={outside || readOnly || saving} onClick={() => {if(!dirty || window.confirm('Discard unsaved weekly assignments and open this date?')) {setDirty(false);setSelectedDay(ds)}}} className={`border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10 hover:bg-white/10'}`}><span className="text-sm">{day.getDate()}</span><span className="block text-[10px] sm:text-xs text-slate-400">{DAY_TYPE_LABELS[cfg.type]}</span><span className="hidden sm:block text-xs text-brand-300">{cfg.schedule_type === 'scheduled' ? `${cfg.required_uids.length} required` : 'Unscheduled'}</span></button>
+          return <button key={ds} disabled={outside || readOnly || saving} onClick={() => {if(!dirty || window.confirm('Discard unsaved weekly assignments and open this date?')) {setDirty(false);setSelectedDay(ds)}}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10 hover:bg-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} /></span><span className="block text-[10px] sm:text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="hidden sm:block text-xs text-brand-300">{cfg.required_uids.length} required</span>}</button>
         })}</div>
       </section>
     </>}

@@ -80,6 +80,24 @@
            focus:border-brand-500/50 transition-colors duration-150;
   }
 
+  /* Native dropdown popups need an opaque background on Windows browsers. */
+  select.input {
+    color-scheme: dark;
+    @apply bg-slate-900 text-slate-100;
+  }
+
+  select option,
+  select optgroup {
+    @apply bg-slate-900 text-slate-100;
+  }
+
+  /* Shared calendar interactions match the dashboard's existing buttons. */
+  .calendar-day {
+    @apply transition-all duration-150 hover:border-brand-500/40
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50
+           active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
   .label {
     @apply block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide;
   }
