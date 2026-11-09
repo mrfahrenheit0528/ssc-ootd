@@ -84,6 +84,25 @@ The dashboard uses Supabase Auth sessions and row-level security. Changing
 UI visibility alone never grants database access. Officer deletion deactivates
 the roster entry; attendance and archived photos are retained.
 
+## Backups
+
+Use PostgreSQL client tools compatible with the version running in your
+Supabase project. Obtain the connection details from the project's Connect
+dialog. For example, set `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`, and
+`PGSSLMODE=require` locally, then use:
+
+```powershell
+pg_dump --format=custom --file=ssc-attendance.dump
+```
+
+The client prompts for a password when needed. Store the dump privately, away
+from the reader PC, and test restoring it in a separate project. It contains
+personal data, photo bytes, role assignments, and device token hashes.
+Document Auth/account recovery separately; an export of application tables
+alone does not reproduce the full Supabase project or its sign-in accounts.
+
+See [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups).
+
 ## Operational notes
 
 - This GitHub repository is public. Commit schema, code, tests, and placeholder
