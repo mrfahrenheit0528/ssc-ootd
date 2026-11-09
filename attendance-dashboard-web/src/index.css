@@ -98,6 +98,22 @@
            active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100;
   }
 
+  /* Date-cell accents identify the day type, independently of attendance. */
+  .calendar-day[data-day-type="regular"] {
+    @apply border-emerald-500/40 bg-emerald-500/10
+           hover:border-emerald-400/60 hover:bg-emerald-500/20;
+  }
+
+  .calendar-day[data-day-type="no_classes"] {
+    @apply border-red-500/40 bg-red-500/10
+           hover:border-red-400/60 hover:bg-red-500/20;
+  }
+
+  .calendar-day[data-day-type="optional"] {
+    @apply border-blue-500/40 bg-blue-500/10
+           hover:border-blue-400/60 hover:bg-blue-500/20;
+  }
+
   .label {
     @apply block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide;
   }

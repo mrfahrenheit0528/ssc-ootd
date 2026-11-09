@@ -6,6 +6,7 @@ import { saveWeek, saveCalendarDay } from '../data'
 import { useSemester } from '../contexts/SemesterContext'
 import { fetchAttendanceContext } from '../utils/reportExport'
 import { emptyWeek, resolveDay, resolveDayWithDraft, DAY_TYPE_LABELS } from '../utils/attendance'
+import DayTypeLegend from '../components/DayTypeLegend'
 import { ScheduleIndicator, ScheduleLegend } from '../components/ScheduleIndicator'
 import { dateKey } from '../utils/attendanceTime'
 
@@ -103,12 +104,12 @@ export default function DayConfig() {
           <span>Preview of unsaved weekly changes. Click Save to apply them.</span>
           <button className="btn-primary" disabled={saving} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save semester schedule'}</button>
         </div>}
-        <ScheduleLegend />
+        <div className="space-y-2"><DayTypeLegend /><ScheduleLegend /></div>
         <div className="grid grid-cols-7 gap-1 sm:gap-2">{WEEKDAYS.map(d => <div key={d} className="text-xs text-center text-slate-400">{d.slice(0,3)}</div>)}{Array.from({length:days[0].getDay()},(_,i) => <div key={`pad-${i}`} />)}{days.map(day => {
           const ds = format(day,'yyyy-MM-dd')
           const cfg = dirty ? resolveDayWithDraft(ds,context,schedule) : resolveDay(ds,context)
           const outside = ds < term.start_date || (term.end_date && ds > term.end_date)
-          return <button key={ds} disabled={outside || readOnly || saving} onClick={() => {if(dirty) {toast.error('Save weekly assignments before editing an individual date.');return} setSelectedDay(ds)}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10 hover:bg-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} /></span><span className="block text-[10px] sm:text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="hidden sm:block text-xs text-brand-300">{cfg.required_uids.length} required</span>}</button>
+          return <button key={ds} data-day-type={outside ? undefined : cfg.type} disabled={outside || readOnly || saving} onClick={() => {if(dirty) {toast.error('Save weekly assignments before editing an individual date.');return} setSelectedDay(ds)}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} /></span><span className="block text-[10px] sm:text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="hidden sm:block text-xs text-brand-300">{cfg.required_uids.length} required</span>}</button>
         })}</div>
       </section>
     </>}

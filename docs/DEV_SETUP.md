@@ -149,3 +149,9 @@ modal backdrop animations, plus the shared button hover/focus/press transitions.
 Keep calendar schedule markers in `ScheduleIndicator.jsx`: pushpin means Scheduled
 and minus means Unscheduled. Show the shared legend, accessible labels, and title
 tooltips; keep full words in forms and reports.
+
+Calendar date-cell borders and background accents identify day types consistently:
+Regular is green, No Classes is red, and Optional is blue. Use the shared
+`DayTypeLegend` and `.calendar-day[data-day-type]` styles in both calendars.
+Attendance fulfillment remains a separate text label; a green Regular cell does
+not mean the assigned officers attended.

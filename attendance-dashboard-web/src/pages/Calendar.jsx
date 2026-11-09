@@ -6,10 +6,10 @@ import { listRecords, recoverAttendance } from '../data'
 import { useSemester } from '../contexts/SemesterContext'
 import { fetchAttendanceContext, exportCSVReport, exportXLSXReport } from '../utils/reportExport'
 import { analyzeAttendanceData } from '../utils/attendance'
+import DayTypeLegend from '../components/DayTypeLegend'
 import { ScheduleIndicator, ScheduleLegend } from '../components/ScheduleIndicator'
 import { dateKey, dateBounds } from '../utils/attendanceTime'
 
-const COLORS = {full:'border-emerald-500/50 bg-emerald-500/10',partial:'border-amber-500/50 bg-amber-500/10',absent:'border-red-500/50 bg-red-500/10',no_classes:'border-slate-600 bg-slate-800/40',optional:'border-violet-500/50 bg-violet-500/10'}
 export default function Calendar() {
   const { semesters } = useSemester()
   const [month,setMonth] = useState(() => startOfMonth(parseISO(dateKey())))
@@ -56,12 +56,12 @@ export default function Calendar() {
       <select aria-label="Calendar semester" className="input max-w-sm" value={semesterId} onChange={e => {setSemesterId(e.target.value); const term=semesters.find(s=>s.id===e.target.value); if(term) setMonth(startOfMonth(parseISO(term.start_date)))}}><option value="">All semesters</option>{semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
       <div className="flex gap-3 items-center"><button className="btn-secondary p-2" aria-label="Previous month" onClick={() => setMonth(m=>addMonths(m,-1))}><ChevronLeft /></button><span>{format(month,'MMMM yyyy')}</span><button className="btn-secondary p-2" aria-label="Next month" onClick={() => setMonth(m=>addMonths(m,1))}><ChevronRight /></button><button className="btn-secondary" onClick={()=>setRetry(v=>v+1)}>Refresh</button></div>
     </div>
-    <ScheduleLegend />
+    <div className="space-y-2"><DayTypeLegend /><ScheduleLegend /></div>
     {error && <div role="alert" className="card p-4 text-red-300">Could not load calendar: {error}<button className="btn-secondary ml-3" onClick={()=>setRetry(v=>v+1)}>Retry</button></div>}
     {loading || !currentScope && !error ? <p className="text-slate-400">Loading calendar...</p> : !error && <div className="card p-2 sm:p-4 grid grid-cols-7 gap-1 sm:gap-2">
       {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div className="text-center text-xs text-slate-400" key={d}>{d}</div>)}
       {Array.from({length:days[0].getDay()},(_,i)=><div key={`pad-${i}`} />)}
-      {days.map(day=>{const ds=format(day,'yyyy-MM-dd'),report=result?.days.find(d=>d.date===ds);return <button key={ds} disabled={!report} onClick={()=>setSelected(report)} className={`calendar-day p-1 sm:p-3 min-h-24 sm:min-h-32 rounded-lg border text-left ${!report ? 'opacity-20' : COLORS[report.status] ?? 'border-white/10 hover:bg-white/5'}`}>
+      {days.map(day=>{const ds=format(day,'yyyy-MM-dd'),report=result?.days.find(d=>d.date===ds);return <button key={ds} data-day-type={report?.dayType} disabled={!report} onClick={()=>setSelected(report)} className={`calendar-day p-1 sm:p-3 min-h-24 sm:min-h-32 rounded-lg border text-left border-white/10 ${!report ? 'opacity-20' : ''}`}>
         <span className="flex items-center justify-between gap-1"><span className={ds===dateKey()?'text-brand-300 font-bold':'text-slate-200'}>{day.getDate()}</span>{report && <ScheduleIndicator type={report.scheduleType} />}</span>{report && <><span className="block text-[10px] sm:text-xs text-slate-400">{report.dayTypeLabel}</span>{report.status !== 'unscheduled' && <span className="block text-[10px] sm:text-xs mt-1">{report.fulfillmentStatus}</span>}<span className="hidden sm:block text-xs text-slate-400">Assigned: {report.requiredAttendedCount}/{report.requiredCount}</span>{report.voluntaryOfficersCount>0 && <span className="hidden sm:block text-xs text-violet-300">{report.voluntaryOfficersCount} volunteer(s)</span>}</>}
       </button>})}
     </div>}
