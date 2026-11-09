@@ -167,7 +167,7 @@ export default function LiveKiosk() {
 
   const sessions   = buildSessions(logs)
   const onDutyNow  = sessions.filter(s => !s.clockOut).length
-  const clockedOut = sessions.filter(s => s.clockOut).length
+  const clockedOut = new Set(sessions.filter(s => s.clockOut).map(s => s.card_uid)).size
   const totalOfficers = new Set(logs.map(l => l.card_uid)).size
 
   return (
