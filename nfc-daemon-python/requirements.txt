@@ -1,5 +1,6 @@
 # The Supabase transport uses Python's standard HTTPS library.
-pyscard==2.0.7
+# This release provides prebuilt Windows wheels for supported CPython versions.
+pyscard==2.3.2
 schedule==1.2.2
 # IANA timezone database for Windows.
 tzdata>=2025.2

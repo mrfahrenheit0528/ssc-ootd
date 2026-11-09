@@ -298,6 +298,32 @@ Set-Location 'F:\GitHub Repo\ssc-ootd'
 Wait for **Reader dependencies installed**. Python 3.10+ must be installed and
 available in your terminal.
 
+For Windows, **Python 3.12 64-bit** is a suitable choice. The setup script
+installs a prebuilt `pyscard` package, so SWIG and C++ build tools are not
+needed. It also checks that the smart-card module can load before reporting
+success. The reader driver and USB connection are checked when you scan a card.
+
+If an older checkout fails with **`swig.exe` failed** while installing
+`pyscard==2.0.7`, update to the latest repository files and run
+`.\setup-reader.bat` again. The repository now uses `pyscard==2.3.2`, which has
+a prebuilt package for Python 3.12 on 64-bit Windows. You do not need to change
+your Supabase settings or reinstall the database.
+
+If pip reports **No matching distribution found**, check the interpreter used
+by the reader's existing virtual environment:
+
+```powershell
+.\nfc-daemon-python\.venv\Scripts\python.exe --version
+```
+
+Installing another Python version does not change an existing virtual
+environment. If the version is unsupported, stop the reader, rename its `.venv`
+folder to the unused name `venv.bak` (which Git ignores). From the repository
+root, run `py -3.12 -m venv nfc-daemon-python/.venv` to recreate it with Python
+3.12, then rerun setup. The `py -3.12` command requires Python 3.12 to be
+installed with the Windows Python launcher. Keep `config.json` and `attendance-supabase.db`; those
+contain the reader settings and offline records.
+
 ### 5B. Find the clock-out tag's ID
 
 The clock-out tag is the special card/tag that authorizes a clock-out. Choose
@@ -505,6 +531,7 @@ and [current pricing](https://supabase.com/pricing).
 | Website says the email is not confirmed | Check that the manually created account is confirmed in Authentication > Users |
 | Website shows a setup message | Check both `.env` values, save the file, and restart `npm.cmd run dev` |
 | `npm` or `python` is not recognized | Install the required tool, then open a new terminal |
+| Setup fails with `swig.exe` while installing `pyscard==2.0.7` | Update the repository and rerun `setup-reader.bat`; see Step 5A |
 | No reader is found | Check the USB connection, reader driver, and Windows Smart Card service |
 | Card UID does not fill in | Keep the Add officer form open, ensure the reader is online, and verify device registration from Step 5C |
 | Events stay only on the reader PC | Check internet access, project pause status, and the reader's `enabled` field |

@@ -16,6 +16,11 @@ On Windows, run `setup-windows.bat` for development or `setup-reader.bat` for
 just the reader. These install dependencies; they do not create a cloud project
 or overwrite existing private credentials.
 
+Windows reader setup pins `pyscard==2.3.2` and requires its binary wheel instead
+of compiling the extension locally. Python 3.12 64-bit is a suitable Windows
+development interpreter. The setup script checks the native smart-card imports;
+this does not establish that a reader is connected or that its driver works.
+
 ## Commands
 
 ```powershell
