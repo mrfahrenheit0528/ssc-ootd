@@ -1,6 +1,6 @@
 // pages/LogHistory.jsx
 // --------------------
-// Attendance log browser with date-range filter, semester filter, search, CSV export.
+// Attendance sessions with paired clock-in/out times, date filters, search, and exports.
 // Admins also get: edit entry, delete entry, add manual entry.
 
 import { useState, useEffect, useCallback } from 'react'
@@ -14,9 +14,10 @@ import {
   Plus, Pencil, Trash2, X, Save, GraduationCap, FileSpreadsheet,
 } from 'lucide-react'
 import {
-  resolveDay, fetchAttendanceContext,
+  resolveDay, fetchAttendanceContext, formatTime, formatDuration,
   exportXLSXReport, exportCSVReport,
 } from '../utils/reportExport'
+import { buildAttendanceSessions, filterAttendanceSessions } from '../utils/attendanceSessions'
 
 // ── Quick presets ─────────────────────────────────────────────────────────────
 const PRESETS = [
@@ -146,13 +147,27 @@ function LogEditModal({ log, officers, onClose, onSave }) {
   )
 }
 
-function TypePill({ type, isAuto }) {
-  return type === 'CLOCK_IN' ? (
-    <span className="badge-clock-in"><LogIn className="w-3 h-3" /> Clock In</span>
-  ) : (
-    <span className="badge-clock-out">
-      <LogOut className="w-3 h-3" /> Clock Out{isAuto && <span className="opacity-60 ml-1">(auto)</span>}
-    </span>
+function SessionTimeCell({ log, kind, isAdmin, onEdit, onDelete }) {
+  const label = kind === 'in' ? 'clock-in' : 'clock-out'
+  return (
+    <td className="px-4 py-3 text-sm">
+      {log ? <div className="flex items-center gap-2">
+        <div>
+          <p className="text-slate-400 font-mono whitespace-nowrap">{formatTime(log.timestamp)}</p>
+          {log.is_auto_closed && <p className="text-xs text-slate-500">Auto-closed</p>}
+        </div>
+        {isAdmin && <div className="flex items-center gap-1">
+          <button onClick={() => onEdit(log)} title={`Edit ${label}`} aria-label={`Edit ${label} for ${log.officer_name ?? log.card_uid}`}
+            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-slate-400 hover:text-slate-200">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={() => onDelete(log)} title={`Delete ${label}`} aria-label={`Delete ${label} for ${log.officer_name ?? log.card_uid}`}
+            className="p-1.5 hover:bg-red-500/15 rounded-lg transition-colors text-slate-400 hover:text-red-400">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>}
+      </div> : <span className="text-slate-500">Not recorded</span>}
+    </td>
   )
 }
 
@@ -232,7 +247,7 @@ export default function LogHistory() {
   }
 
   const handleDelete = async (log) => {
-    if (!window.confirm('Delete this log entry permanently?')) return
+    if (!window.confirm(`Delete this ${log.type === 'CLOCK_IN' ? 'clock-in' : 'clock-out'} entry?`)) return
     try {
       await deleteRecord('attendance_logs', log.id)
       setLogs(prev => prev.filter(l => l.id !== log.id))
@@ -242,13 +257,10 @@ export default function LogHistory() {
     }
   }
 
-  const filtered = logs.filter(l => {
-    const q = search.toLowerCase()
-    return !q
-      || l.officer_name?.toLowerCase().includes(q)
-      || l.card_uid?.toLowerCase().includes(q)
-      || l.type?.toLowerCase().includes(q)
-  })
+  const sessions = buildAttendanceSessions(logs)
+  const filteredSessions = filterAttendanceSessions(sessions, search)
+  // Search whole sessions before selecting raw events so exports retain pairs.
+  const filtered = filteredSessions.flatMap(session => [session.clockIn, session.clockOut].filter(Boolean))
 
   // Export multi-sheet XLSX report with assigned vs voluntary distinction
   const handleExportXLSX = async () => {
@@ -420,7 +432,7 @@ export default function LogHistory() {
               </span>
             )}
           </div>
-          <span className="text-xs text-slate-500">{filtered.length} record{filtered.length !== 1 ? 's' : ''} found</span>
+          <span className="text-xs text-slate-500">{filteredSessions.length} session{filteredSessions.length !== 1 ? 's' : ''} found</span>
         </div>
 
         {!fetched ? (
@@ -441,27 +453,28 @@ export default function LogHistory() {
                 <tr>
                   <th>Officer</th>
                   <th>Assignment</th>
-                  <th>Action</th>
                   <th>Date</th>
-                  <th>Time</th>
+                  <th>Clock In</th>
+                  <th>Clock Out</th>
+                  <th>Duration</th>
                   <th>Card UID</th>
-                  {isAdmin && <th></th>}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(log => {
-                  const ts = log.timestamp?.toDate?.() ?? new Date(log.timestamp)
-                  const logDateStr = format(ts, 'yyyy-MM-dd')
+                {filteredSessions.map(session => {
+                  const logDateStr = session.date
+                  const ts = new Date(`${logDateStr}T12:00:00`)
+                  const edited = session.clockIn?.manually_edited || session.clockOut?.manually_edited
                   const dayCfg = resolveDay(logDateStr, dayConfigMap, weeklySchedule, weeklyEffFrom)
-                  const isAssigned = (dayCfg?.required_uids ?? []).includes(log.card_uid)
-                  const officer = officerMap[log.card_uid]
+                  const isAssigned = (dayCfg?.required_uids ?? []).includes(session.card_uid)
+                  const officer = officerMap[session.card_uid]
 
                   return (
-                    <tr key={log.id} className={`border-b border-white/5 hover:bg-white/3 transition-colors ${log.manually_edited ? 'bg-amber-500/5' : ''}`}>
+                    <tr key={session.clockIn?.id ?? session.clockOut.id} className={`border-b border-white/5 hover:bg-white/3 transition-colors ${edited ? 'bg-amber-500/5' : ''}`}>
                       <td className="px-4 py-3 font-medium">
-                        <p className="text-slate-100">{log.officer_name ?? log.card_uid}</p>
+                        <p className="text-slate-100">{session.officer_name ?? session.card_uid}</p>
                         {officer?.position && <p className="text-xs text-slate-500">{officer.position}</p>}
-                        {log.manually_edited && <span className="text-xs text-amber-500/70">(edited)</span>}
+                        {edited && <span className="text-xs text-amber-500/70">(edited)</span>}
                       </td>
                       <td className="px-4 py-3">
                         {isAssigned ? (
@@ -474,24 +487,11 @@ export default function LogHistory() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3"><TypePill type={log.type} isAuto={log.is_auto_closed} /></td>
-                      <td className="px-4 py-3 text-slate-400 text-sm">{format(ts, 'MMM d, yyyy')}</td>
-                      <td className="px-4 py-3 text-slate-400 text-sm font-mono">{format(ts, 'hh:mm:ss a')}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs font-mono">{log.card_uid}</td>
-                      {isAdmin && (
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => setModal(log)}
-                              className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-slate-400 hover:text-slate-200">
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleDelete(log)}
-                              className="p-1.5 hover:bg-red-500/15 rounded-lg transition-colors text-slate-400 hover:text-red-400">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                      <td className="px-4 py-3 text-slate-400 text-sm whitespace-nowrap">{format(ts, 'MMM d, yyyy')}</td>
+                      <SessionTimeCell log={session.clockIn} kind="in" isAdmin={isAdmin} onEdit={setModal} onDelete={handleDelete} />
+                      <SessionTimeCell log={session.clockOut} kind="out" isAdmin={isAdmin} onEdit={setModal} onDelete={handleDelete} />
+                      <td className="px-4 py-3 text-slate-400 text-sm font-mono">{formatDuration(session.clockIn?.timestamp, session.clockOut?.timestamp)}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs font-mono">{session.card_uid}</td>
                     </tr>
                   )
                 })}
