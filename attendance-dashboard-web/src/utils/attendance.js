@@ -21,6 +21,24 @@ export function resolveDay(dayValue, context = {}) {
   return { date: day, semester, type, note: calendar?.note ?? '', schedule_type: scheduled ? 'scheduled' : 'unscheduled',
     scheduled_uids: [...new Set(scheduledUids)], required_uids: type === 'regular' && (scheduled || calendar?.required_uids != null) ? [...new Set(scheduledUids)] : [] }
 }
+// Preview exactly the dates a weekly save can change. Saved history and explicit
+// calendar assignments still resolve normally; this never mutates fetched data.
+export function resolveDayWithDraft(dayValue, context = {}, draftSchedule, today = dateKey()) {
+  const saved = resolveDay(dayValue, context)
+  const semester = saved.semester
+  if (!draftSchedule || semester?.status !== 'active' || semester.id !== context.selectedSemesterId) return saved
+  const versions = (context.scheduleVersions ?? []).filter(v => v.semester_id === semester.id)
+  const calendar = (context.calendarDays ?? []).find(d => d.semester_id === semester.id && d.date === saved.date)
+  if (calendar?.schedule_version_id || (versions.length > 0 && saved.date < today)) return saved
+  return resolveDay(saved.date, {
+    ...context,
+    scheduleVersions: [
+      ...(context.scheduleVersions ?? []).filter(v => v.semester_id !== semester.id),
+      { id: 'weekly-draft', semester_id: semester.id, revision: 1, schedule: draftSchedule },
+    ],
+  })
+}
+
 export function reportDays(from, to, logs = []) {
   if (!from || !to) return [...new Set(logs.map(l => dateKey(l.timestamp)))].sort()
   if (from > to) throw new Error('From date must be on or before To date.')

@@ -66,7 +66,12 @@ files on every reader PC before restarting those readers.
 2. Open **Day Config** and choose that semester.
 3. For each weekday choose **Scheduled** or **Unscheduled**.
 4. For a Scheduled day, tick the officers required for that weekday.
-5. Click **Save semester schedule**.
+5. The calendar immediately previews type and officer changes for today and
+   future dates. An amber message identifies unsaved changes. Earlier dates
+   retain their saved assignments; No Classes, Optional, and custom date lists
+   still take precedence.
+6. Click **Save semester schedule** in either card to apply the changes. Save
+   weekly edits before opening an individual date so those edits are retained.
 
 There is no Effective From date. The schedule belongs to the selected semester.
 The first schedule of a new semester covers that semester. Later saves retain

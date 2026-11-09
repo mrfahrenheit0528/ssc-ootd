@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { analyzeAttendanceData, resolveDay, emptyWeek } from './attendance.js'
+import { analyzeAttendanceData, resolveDay, resolveDayWithDraft, emptyWeek } from './attendance.js'
 import { dateKey,dateBounds,timeInput } from './attendanceTime.js'
 const week={...emptyWeek(),1:{type:'scheduled',required_uids:['A']},2:{type:'scheduled',required_uids:['A']}}
 const context={semesters:[{id:'term',start_date:'2026-11-01',end_date:'2026-12-01',status:'active'}],scheduleVersions:[{id:'v1',semester_id:'term',revision:1,schedule:week}],calendarDays:[]}
@@ -56,4 +56,43 @@ test('searching one of two assigned attendees cannot invent the hidden attendee 
   assert.equal(result.summary.totalRequiredAssignments,1)
   assert.equal(result.summary.totalRequiredAbsent,0)
   assert.equal(result.allMasterRows.length,1)
+})
+
+test('weekly type and officer edits immediately preview without changing saved assignments',()=>{
+  const ctx={...context,selectedSemesterId:'term'}
+  const draft={...week,2:{type:'unscheduled',required_uids:[]}}
+  assert.equal(resolveDayWithDraft('2026-11-10',ctx,draft,'2026-11-10').schedule_type,'unscheduled')
+  assert.deepEqual(resolveDayWithDraft('2026-11-10',ctx,draft,'2026-11-10').required_uids,[])
+  draft['2']={type:'scheduled',required_uids:['B']}
+  assert.deepEqual(resolveDayWithDraft('2026-11-10',ctx,draft,'2026-11-10').required_uids,['B'])
+  assert.deepEqual(resolveDay('2026-11-10',ctx).required_uids,['A'])
+})
+test('weekly preview keeps past revisions while updating recurring future dates',()=>{
+  const ctx={...context,selectedSemesterId:'term'}
+  const draft={...week,1:{type:'unscheduled',required_uids:[]}}
+  assert.equal(resolveDayWithDraft('2026-11-09',ctx,draft,'2026-11-10').schedule_type,'scheduled')
+  assert.equal(resolveDayWithDraft('2026-11-16',ctx,draft,'2026-11-10').schedule_type,'unscheduled')
+})
+test('weekly preview preserves calendar day types and custom officer lists',()=>{
+  const draft={...week,2:{type:'scheduled',required_uids:['B']}}
+  const ctx={...context,selectedSemesterId:'term',calendarDays:[{semester_id:'term',date:'2026-11-10',type:'no_classes',note:'Campus event'}]}
+  let day=resolveDayWithDraft('2026-11-10',ctx,draft,'2026-11-10')
+  assert.equal(day.schedule_type,'scheduled');assert.equal(day.type,'no_classes');assert.equal(day.note,'Campus event');assert.deepEqual(day.required_uids,[])
+  ctx.calendarDays[0].type='optional'
+  assert.deepEqual(resolveDayWithDraft('2026-11-10',ctx,draft,'2026-11-10').required_uids,[])
+  ctx.calendarDays[0].type='regular';ctx.calendarDays[0].required_uids=['A']
+  assert.deepEqual(resolveDayWithDraft('2026-11-10',ctx,draft,'2026-11-10').required_uids,['A'])
+  ctx.calendarDays[0].required_uids=[]
+  assert.equal(resolveDayWithDraft('2026-11-10',ctx,draft,'2026-11-10').schedule_type,'unscheduled')
+})
+test('first weekly preview covers its semester but cannot alter archived or unselected semesters',()=>{
+  const ctx={...context,selectedSemesterId:'term',scheduleVersions:[]}
+  assert.equal(resolveDayWithDraft('2026-11-09',ctx,week,'2026-11-10').schedule_type,'scheduled')
+  const archived={...ctx,semesters:[{...context.semesters[0],status:'ended'}]}
+  assert.equal(resolveDayWithDraft('2026-11-09',archived,week,'2026-11-10').schedule_type,'unscheduled')
+  assert.equal(resolveDayWithDraft('2026-11-09',{...ctx,selectedSemesterId:null},week,'2026-11-10').schedule_type,'unscheduled')
+})
+test('weekly preview respects explicitly pinned calendar revisions',()=>{
+  const ctx={...context,selectedSemesterId:'term',calendarDays:[{semester_id:'term',date:'2026-11-10',type:'regular',schedule_version_id:'v1'}]}
+  assert.deepEqual(resolveDayWithDraft('2026-11-10',ctx,emptyWeek(),'2026-11-10').required_uids,['A'])
 })

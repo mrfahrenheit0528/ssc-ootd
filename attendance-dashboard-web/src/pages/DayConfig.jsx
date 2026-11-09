@@ -5,7 +5,7 @@ import toast from 'react-hot-toast'
 import { saveWeek, saveCalendarDay } from '../data'
 import { useSemester } from '../contexts/SemesterContext'
 import { fetchAttendanceContext } from '../utils/reportExport'
-import { emptyWeek, resolveDay, DAY_TYPE_LABELS } from '../utils/attendance'
+import { emptyWeek, resolveDay, resolveDayWithDraft, DAY_TYPE_LABELS } from '../utils/attendance'
 import { ScheduleIndicator, ScheduleLegend } from '../components/ScheduleIndicator'
 import { dateKey } from '../utils/attendanceTime'
 
@@ -98,12 +98,17 @@ export default function DayConfig() {
         <button className="btn-primary" disabled={readOnly || saving} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save semester schedule'}</button>
       </section>
       <section className="card p-4 space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Calendar day types</h2><div className="flex items-center gap-3"><button className="btn-secondary p-2" aria-label="Previous month" onClick={() => setMonth(m => subMonths(m,1))}><ChevronLeft /></button><span>{format(month,'MMMM yyyy')}</span><button className="btn-secondary p-2" aria-label="Next month" onClick={() => setMonth(m => addMonths(m,1))}><ChevronRight /></button></div></div>
-        <p className="text-xs text-slate-400">Click a date to set its day type and note. The saved weekly schedule supplies the assignments.</p>
+        <p className="text-xs text-slate-400">Weekly edits appear here immediately for today and future dates. Earlier dates keep their saved assignments. Save weekly changes before editing an individual date.</p>
+        {dirty && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-300 animate-fade-in">
+          <span>Preview of unsaved weekly changes. Click Save to apply them.</span>
+          <button className="btn-primary" disabled={saving} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save semester schedule'}</button>
+        </div>}
         <ScheduleLegend />
         <div className="grid grid-cols-7 gap-1 sm:gap-2">{WEEKDAYS.map(d => <div key={d} className="text-xs text-center text-slate-400">{d.slice(0,3)}</div>)}{Array.from({length:days[0].getDay()},(_,i) => <div key={`pad-${i}`} />)}{days.map(day => {
-          const ds = format(day,'yyyy-MM-dd'), cfg = resolveDay(ds,context)
+          const ds = format(day,'yyyy-MM-dd')
+          const cfg = dirty ? resolveDayWithDraft(ds,context,schedule) : resolveDay(ds,context)
           const outside = ds < term.start_date || (term.end_date && ds > term.end_date)
-          return <button key={ds} disabled={outside || readOnly || saving} onClick={() => {if(!dirty || window.confirm('Discard unsaved weekly assignments and open this date?')) {setDirty(false);setSelectedDay(ds)}}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10 hover:bg-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} /></span><span className="block text-[10px] sm:text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="hidden sm:block text-xs text-brand-300">{cfg.required_uids.length} required</span>}</button>
+          return <button key={ds} disabled={outside || readOnly || saving} onClick={() => {if(dirty) {toast.error('Save weekly assignments before editing an individual date.');return} setSelectedDay(ds)}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10 hover:bg-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} /></span><span className="block text-[10px] sm:text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="hidden sm:block text-xs text-brand-300">{cfg.required_uids.length} required</span>}</button>
         })}</div>
       </section>
     </>}
