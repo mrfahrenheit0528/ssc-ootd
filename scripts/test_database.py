@@ -7,6 +7,7 @@ Requires psycopg[binary]. Run: python scripts/test_database.py
 """
 import base64
 import hashlib
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import unittest
@@ -30,14 +31,32 @@ def initialize():
             raise RuntimeError('Tests require an empty database named ssc_migration_test.')
         if conn.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('public','auth')").fetchone()[0]:
             raise RuntimeError('Test database must be empty. Create a fresh disposable database.')
-        conn.execute("CREATE ROLE anon; CREATE ROLE authenticated;")
+        conn.execute("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; END $$")
         conn.execute("CREATE SCHEMA auth; CREATE SCHEMA extensions;")
         conn.execute('CREATE TABLE auth.users(id uuid PRIMARY KEY)')
         conn.execute("CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$")
         conn.execute('GRANT USAGE ON SCHEMA public,auth TO anon,authenticated')
         conn.execute('CREATE PUBLICATION supabase_realtime')
-        migration = Path(__file__).resolve().parents[1] / 'supabase/migrations/202611090001_initial.sql'
-        conn.execute(migration.read_text(encoding='utf-8'))
+        for migration in sorted((Path(__file__).resolve().parents[1] / 'supabase/migrations').glob('*.sql')):
+            if migration.name.startswith('202611100001'):
+                conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES ('LEGACY01','Sample','Officer','Secretary')")
+                conn.execute("INSERT INTO public.semesters(id,name,start_date,status) VALUES ('legacy','Legacy',((now() AT TIME ZONE 'Asia/Manila')::date-30),'active')")
+                week={str(i):{'type':'holiday' if i==0 else 'optional' if i==6 else 'regular','required_uids':['LEGACY01']} for i in range(7)}
+                conn.execute("INSERT INTO public.day_config(id,data) VALUES ('weekly',%s)",(Jsonb({'schedule':week}),))
+                conn.execute("INSERT INTO public.day_config(id,data) VALUES (((now() AT TIME ZONE 'Asia/Manila')::date+1)::text,%s)",(Jsonb({'type':'holiday','note':'School closure'}),))
+                conn.execute("INSERT INTO public.day_config(id,data) VALUES (((now() AT TIME ZONE 'Asia/Manila')::date+2)::text,%s)",(Jsonb({'type':'regular','note':'Note only'}),))
+            conn.execute(migration.read_text(encoding='utf-8'))
+            if migration.name.startswith('202611100001'):
+                imported=conn.execute("SELECT schedule FROM public.semester_schedules WHERE semester_id='legacy'").fetchone()[0]
+                assert imported['1']['type']=='scheduled' and imported['0']['type']=='unscheduled'
+                future=conn.execute("SELECT type,required_uids,schedule_version_id FROM public.calendar_days WHERE note='School closure'").fetchone()
+                assert future==('no_classes',None,None),future
+                assert conn.execute("SELECT required_uids FROM public.calendar_days WHERE note='Note only'").fetchone()[0] is None
+                assert conn.execute("SELECT count(*) FROM public.calendar_days WHERE date=(now() AT TIME ZONE 'Asia/Manila')::date").fetchone()[0]==0
+                assert conn.execute("SELECT count(*) FROM public.calendar_days WHERE schedule_version_id IS NOT NULL").fetchone()[0]>=30
+                conn.execute("DELETE FROM public.semesters WHERE id='legacy'")
+                conn.execute("DELETE FROM public.officers WHERE card_uid='LEGACY01'; DELETE FROM public.day_config")
+
 
 
 @unittest.skipUnless(DSN, 'Set SSC_TEST_DATABASE_URL for PostgreSQL integration tests')
@@ -77,7 +96,8 @@ class DatabaseTests(unittest.TestCase):
     def test_officer_can_read_but_cannot_change_profiles(self):
         self.role(OFFICER)
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.officers').fetchone()[0], 1)
-        self.assertEqual(self.conn.execute("UPDATE public.officers SET first_name='Changed' RETURNING card_uid").fetchall(), [])
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege), self.conn.transaction():
+            self.conn.execute("UPDATE public.officers SET first_name='Changed' RETURNING card_uid")
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             self.conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES ('BBBB2222','B','C','Member')")
 
@@ -117,7 +137,8 @@ class DatabaseTests(unittest.TestCase):
         event = self.event()
         self.ingest([event])
         self.role(ADMIN)
-        self.conn.execute("UPDATE public.attendance_logs SET type='CLOCK_OUT',manually_edited=true,deleted_at=now() WHERE id=%s", (event['event_id'],))
+        self.conn.execute("SELECT public.correct_attendance(%s,'AAAA1111','CLOCK_OUT','2026-11-09T10:00:00+08:00',false,'Test correction')", (event['event_id'],))
+        self.conn.execute("SELECT public.delete_attendance(%s,'Test deletion')", (event['event_id'],))
         self.role(anonymous=True)
         self.ingest([event])
         self.role(ADMIN)
@@ -164,6 +185,107 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(self.conn.execute('SELECT public.reader_tap(%s,%s,%s)', (DEVICE,TOKEN,'AAAA1111')).fetchone()[0])
         self.role(ADMIN)
         self.assertEqual(self.conn.execute("SELECT data->>'latest_uid' FROM public.system_settings WHERE id='live_scanner'").fetchone()[0], 'AAAA1111')
+
+
+    def term(self):
+        self.conn.execute("RESET ROLE")
+        self.conn.execute("INSERT INTO public.semesters(id,name,start_date,status) VALUES ('term','Test Semester',((now() AT TIME ZONE 'Asia/Manila')::date-30),'active')")
+        self.role(ADMIN)
+        return {str(i):{'type':'scheduled','required_uids':['AAAA1111']} for i in range(7)}
+
+    def test_semester_revisions_freeze_past_dates_and_calendar_inherits(self):
+        week=self.term()
+        first=self.conn.execute("SELECT public.save_semester_schedule('term',%s)",(Jsonb(week),)).fetchone()[0]
+        self.conn.execute("SELECT public.save_calendar_day('term',(now() AT TIME ZONE 'Asia/Manila')::date-1,'regular','Note only',null)")
+        second=self.conn.execute("SELECT public.save_semester_schedule('term',%s)",(Jsonb(week),)).fetchone()[0]
+        self.assertNotEqual(first,second)
+        day=self.conn.execute("SELECT schedule_version_id,required_uids FROM public.calendar_days WHERE date=(now() AT TIME ZONE 'Asia/Manila')::date-1").fetchone()
+        self.assertEqual(day,(first,None))
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.calendar_days WHERE date>=(now() AT TIME ZONE 'Asia/Manila')::date").fetchone()[0],0)
+        self.conn.execute("SELECT public.save_calendar_day('term',(now() AT TIME ZONE 'Asia/Manila')::date,'regular','No required officers',%s)",(Jsonb([]),))
+        self.assertEqual(self.conn.execute("SELECT required_uids FROM public.calendar_days WHERE note='No required officers'").fetchone()[0],[])
+
+    def test_non_admin_cannot_save_schedule(self):
+        week=self.term();self.role(OFFICER)
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+            self.conn.execute("SELECT public.save_semester_schedule('term',%s)",(Jsonb(week),))
+
+    def test_archived_schedule_cannot_change(self):
+        week=self.term();self.conn.execute("SELECT public.archive_semester('term',(now() AT TIME ZONE 'Asia/Manila')::date)")
+        with self.assertRaises(psycopg.errors.RaiseException):
+            self.conn.execute("SELECT public.save_semester_schedule('term',%s)",(Jsonb(week),))
+
+    def test_invalid_weekday_and_removed_holiday_are_rejected(self):
+        week=self.term();week['1']={}
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():
+            self.conn.execute("SELECT public.save_semester_schedule('term',%s)",(Jsonb(week),))
+        with self.assertRaises(psycopg.errors.RaiseException):
+            self.conn.execute("SELECT public.save_calendar_day('term',(now() AT TIME ZONE 'Asia/Manila')::date,'holiday','',null)")
+
+    def test_duplicate_card_cannot_overwrite_and_restoration_is_explicit(self):
+        self.role(ADMIN)
+        profile=Jsonb({'first_name':'Changed','last_name':'Cruz','position':'Secretary'})
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():
+            self.conn.execute("SELECT public.save_officer('AAAA1111',%s,true,false)",(profile,))
+        self.assertEqual(self.conn.execute('SELECT first_name FROM public.officers').fetchone()[0],'Ana')
+        self.conn.execute("SELECT public.deactivate_officer('AAAA1111')")
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():
+            self.conn.execute("SELECT public.save_officer('AAAA1111',%s,false,false)",(profile,))
+        self.conn.execute("SELECT public.save_officer('AAAA1111',%s,false,true)",(profile,))
+        self.assertEqual(self.conn.execute('SELECT first_name,active FROM public.officers').fetchone(),('Changed',True))
+
+    def test_enrollment_owner_cannot_be_stolen_or_released_by_other_tab(self):
+        self.role(ADMIN);a,b=str(uuid4()),str(uuid4())
+        def lease(owner,active):return self.conn.execute('SELECT public.set_enrollment(%s,%s)',(owner,active)).fetchone()[0]
+        self.assertTrue(lease(a,True));self.assertFalse(lease(b,True));self.assertFalse(lease(b,False))
+        self.role(anonymous=True)
+        self.assertTrue(self.conn.execute("SELECT public.reader_tap(%s,%s,'AAAA1111')",(DEVICE,TOKEN)).fetchone()[0])
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute("SELECT data->>'owner' FROM public.system_settings WHERE id='live_scanner'").fetchone()[0],a)
+        self.assertTrue(lease(a,False));self.assertTrue(lease(b,True))
+
+    def test_corrections_record_actor_reason_and_precise_before_after(self):
+        self.role(anonymous=True);event=self.event(timestamp='2026-11-09T09:00:42+08:00');self.ingest([event]);self.role(ADMIN)
+        self.conn.execute("SELECT public.correct_attendance(%s,'AAAA1111','CLOCK_OUT','2026-11-09T10:00:42+08:00',false,'Wrong tap action')",(event['event_id'],))
+        row=self.conn.execute('SELECT actor_id,reason,before_data,after_data FROM public.attendance_audit').fetchone()
+        self.assertEqual(str(row[0]),ADMIN);self.assertEqual(row[1],'Wrong tap action');self.assertEqual(row[2]['type'],'CLOCK_IN');self.assertEqual(row[3]['type'],'CLOCK_OUT')
+        self.assertIn(':42',row[3]['timestamp'])
+        self.role(OFFICER);self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_audit').fetchone()[0],0)
+
+    def test_missed_cutoff_recovery_is_deterministic_and_idempotent(self):
+        self.role(anonymous=True);event=self.event();self.ingest([event]);self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT public.recover_due_attendance()').fetchone()[0],1)
+        self.assertEqual(self.conn.execute('SELECT public.recover_due_attendance()').fetchone()[0],0)
+        auto=self.conn.execute("SELECT id,timestamp AT TIME ZONE 'Asia/Manila' FROM public.attendance_logs WHERE is_auto_closed").fetchone()
+        self.assertEqual(auto[0].hex,hashlib.md5((event['event_id']+':auto-close').encode()).hexdigest())
+        self.assertEqual(auto[1].isoformat(),'2026-11-09T21:00:00')
+        self.role(anonymous=True)
+        self.assertEqual(self.ingest([self.event(event_id=str(auto[0]),action_type='CLOCK_OUT',timestamp='2026-11-09T21:00:00+08:00',is_auto_closed=True)]),1)
+
+    def test_cloud_auto_close_for_manual_clock_in_can_be_acknowledged_by_reader(self):
+        self.role(ADMIN)
+        clock_in=self.conn.execute("SELECT public.correct_attendance(null,'AAAA1111','CLOCK_IN','2026-11-09T10:00:00+08:00',false,'Missed card scan')").fetchone()[0]
+        self.conn.execute('SELECT public.recover_due_attendance()')
+        auto=self.conn.execute("SELECT id,timestamp FROM public.attendance_logs WHERE is_auto_closed").fetchone()
+        self.assertEqual(auto[0].hex,hashlib.md5((str(clock_in)+':auto-close').encode()).hexdigest())
+        self.conn.execute("SELECT public.delete_attendance(%s,'Incorrect auto close')",(auto[0],))
+        self.role(anonymous=True)
+        self.assertEqual(self.ingest([self.event(event_id=str(auto[0]),action_type='CLOCK_OUT',timestamp=auto[1].isoformat(),is_auto_closed=True)]),1)
+        context=self.conn.execute('SELECT public.reader_context(%s,%s,%s)',(DEVICE,TOKEN,Jsonb([str(auto[0])]))).fetchone()[0]
+        self.assertIn(str(auto[0]),context['known_event_ids'])
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0],2)
+
+    def test_reader_snapshot_acknowledges_tombstones_and_current_manual_events(self):
+        stamp=datetime.now(timezone.utc)-timedelta(minutes=2)
+        self.role(anonymous=True);event=self.event(timestamp=stamp.isoformat());self.ingest([event]);self.role(ADMIN)
+        self.conn.execute("SELECT public.delete_attendance(%s,'Wrong card scan')",(event['event_id'],))
+        self.conn.execute("SELECT public.correct_attendance(null,'AAAA1111','CLOCK_OUT',%s,false,'Manual clock out')",(stamp,))
+        self.role(anonymous=True)
+        result=self.conn.execute('SELECT public.reader_context(%s,%s,%s)',(DEVICE,TOKEN,Jsonb([event['event_id']]))).fetchone()[0]
+        self.assertIn(event['event_id'],result['known_event_ids'])
+        self.assertTrue(any(e['deleted_at'] for e in result['events']))
+        self.assertTrue(any(e['manually_edited'] and e['type']=='CLOCK_OUT' for e in result['events']))
 
 
 if __name__ == '__main__':

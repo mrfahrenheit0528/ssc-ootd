@@ -1,5 +1,7 @@
 # Set up SSC Attendance with Supabase
 
+Already running the system? Start with [the dashboard upgrade guide](DASHBOARD_UPGRADE.md) to apply the new scheduling migration.
+
 Follow this guide in order. You can skip any step you have already completed.
 If you already created your accounts and are looking for **public signups**, go
 straight to [Step 3A](#3a-turn-off-public-signups).
@@ -96,6 +98,20 @@ admins can manage them. Photos are stored directly in PostgreSQL, in
 
 If you see an error such as **already exists**, do not delete tables or keep
 rerunning the file. Check whether this step already succeeded.
+
+## 2A. Add semester schedules and dashboard fixes
+
+After Step 2 succeeds, run the additional migration once:
+
+1. Open [202611100001_dashboard_refinement.sql](../supabase/migrations/202611100001_dashboard_refinement.sql) in VS Code.
+2. Copy the whole file, open a **New query** in Supabase **SQL Editor**, paste,
+   then click **Run**.
+3. Check that `semester_schedules`, `calendar_days`, and `attendance_audit`
+   appear in Table Editor, alongside the original eight tables.
+
+For an existing working project, follow [DASHBOARD_UPGRADE.md](DASHBOARD_UPGRADE.md)
+instead of repeating the initial setup. Both migrations are required by the
+current dashboard and reader.
 
 ## 3. Set up website sign-in accounts
 
@@ -538,9 +554,10 @@ and [current pricing](https://supabase.com/pricing).
 
 ## What comes after the migration
 
-The existing 9 PM auto-close job still runs on the reader PC, so it only fires
-while that program is running. Weekly schedule history and reconciliation of
-manual corrections with the reader's local state also need further work.
-These enhancements are separate from getting the cloud migration working.
+Semester schedules, day calendars, audited corrections, and missed-cutoff
+recovery are included in the dashboard upgrade. See
+[DASHBOARD_UPGRADE.md](DASHBOARD_UPGRADE.md) for the workflow and recovery limits.
+Independent backups, account recovery, hosting checks, and a live reader/browser
+smoke test are still needed before relying on the system for real records.
 
 For developer commands and automated tests, use [DEV_SETUP.md](DEV_SETUP.md).

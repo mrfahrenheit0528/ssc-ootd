@@ -1,17 +1,29 @@
-import { format } from 'date-fns'
+import { dateKey } from './attendanceTime.js'
 
 function eventDate(event) {
   return event.timestamp?.toDate ? event.timestamp.toDate() : new Date(event.timestamp)
 }
 
+export function compareEvents(a,b) {
+  return eventDate(a)-eventDate(b)
+    || Number(Boolean(a.is_auto_closed))-Number(Boolean(b.is_auto_closed))
+    || (a.created_at ? eventDate({timestamp:a.created_at}).getTime() : 0)-(b.created_at ? eventDate({timestamp:b.created_at}).getTime() : 0)
+    || String(a.id ?? '').localeCompare(String(b.id ?? ''))
+}
+export function latestAttendanceByOfficer(logs) {
+  const latest=new Map()
+  for(const log of [...logs].sort(compareEvents)) latest.set(log.card_uid,log)
+  return latest
+}
+
 // Pair events only within the same officer and calendar day. Keep incomplete
 // sessions visible so missing or manually removed events are not hidden.
 export function buildAttendanceSessions(logs) {
-  const chronological = [...logs].sort((a, b) => eventDate(a) - eventDate(b))
+  const chronological = [...logs].sort(compareEvents)
   const open = new Map()
   const sessions = []
   for (const log of chronological) {
-    const date = format(eventDate(log), 'yyyy-MM-dd')
+    const date = dateKey(log.timestamp)
     const key = JSON.stringify([log.card_uid, date])
     if (log.type === 'CLOCK_IN') {
       const session = { date, card_uid: log.card_uid, officer_name: log.officer_name, clockIn: log, clockOut: null }

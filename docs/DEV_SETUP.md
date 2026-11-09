@@ -52,7 +52,9 @@ actual workbook generation. A build does not verify your cloud credentials.
 scratch PostgreSQL database. It creates minimal stand-ins for Supabase Auth
 and Realtime publication metadata. It checks member/admin permissions,
 reader credential boundaries, photo storage, duplicate event replay, batch
-rollback, cloud status updates, semester snapshots, and enrollment expiry.
+rollback, cloud status updates, semester snapshots, and enrollment expiry. It also seeds legacy schedules before the upgrade,
+then checks semester revision retention, removed day types, audited corrections,
+duplicate-card protection, lease ownership, tombstones, and cutoff recovery.
 
 Install `psycopg[binary]` in a local test virtual environment and create an empty
 database named `ssc_migration_test` in a disposable PostgreSQL instance. Set
@@ -74,7 +76,10 @@ Use a fresh disposable instance for each bootstrap run. The `anon` and
 | `officers` | Card UID, profile, photo reference, derived status, active flag |
 | `officer_photos` | Immutable JPEG/PNG bytes, up to 1 MB per photo |
 | `attendance_logs` | UUID, officer, event time/action, source device, correction flags |
-| `day_config` | Per-date and recurring weekly schedule configuration |
+| `day_config` | Legacy configuration retained for migration/reference |
+| `semester_schedules` | Semester weekly assignments, with immutable revisions |
+| `calendar_days` | Day types, notes, nullable assignment overrides, historical revision references |
+| `attendance_audit` | Admin identity, reason, and before/after correction records |
 | `semesters` | Term dates and archived roster snapshots |
 | `system_settings` | Expiring enrollment mode and last enrollment card tap |
 | `reader_devices` | Restricted reader identity, token hash, enable/disable flag |
@@ -116,9 +121,18 @@ See [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups
 - The dashboard talks to whichever cloud project `.env` selects. There is no
   automatic emulator switch; use a separate project for destructive testing.
 - Keep `config.json`, `.env`, `.local/`, local databases, and backups private.
-- Date grouping in the dashboard currently follows the browser timezone. The
-  reader defaults to `Asia/Manila`; keep attendance devices in the same local
-  timezone until timezone-aware reporting is implemented.
+- School dates, report grouping, and the cutoff use `Asia/Manila` and 21:00.
+  Local SQLite upgrades in place; preserve its queue when updating a reader.
+- Apply every SQL migration in filename order. For an existing cloud project,
+  follow [DASHBOARD_UPGRADE.md](DASHBOARD_UPGRADE.md); never rerun the initial SQL.
+- Corrections, enrollment leases, and officer writes use checked RPCs. Direct
+  browser writes to those tables are revoked. Audit reads are admin-only.
+- Reader context merges cloud events with local events whose stable IDs the
+  server has not seen, including events uploaded during a snapshot request.
+  Older snapshots cannot replace newer state. Queue rows are retained.
+- Cloud and local cutoff recovery share `md5(clockInUuid + ':auto-close')` UUIDs.
+  This is an idempotency key, not a credential. Recovery runs on reconnect/poll,
+  not on an independent cloud timer.
 - Windows auto-start uses `nfc-daemon-python/setup_task_scheduler.ps1` and runs
   at user sign-in. It does not record cards while the PC is off or logged out.
 - See the final sections of [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for known

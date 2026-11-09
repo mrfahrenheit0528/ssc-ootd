@@ -2,12 +2,12 @@
 import { client } from './supabase.js'
 
 export class Instant {
-  constructor(value) { this.value = new Date(value) }
+  constructor(value) { this.value = new Date(value); this.source = typeof value === 'string' ? value : this.value.toISOString() }
   static fromDate(value) { return new Instant(value) }
   static now() { return new Instant(new Date()) }
   toDate() { return new Date(this.value) }
   toMillis() { return this.value.getTime() }
-  toJSON() { return this.value.toISOString() }
+  toJSON() { return this.source }
 }
 export function createDataAccess(getClient = client) {
   const photoCache = new Map()
@@ -47,10 +47,12 @@ export function createDataAccess(getClient = client) {
     // Page explicitly: a semester can exceed Supabase's response row limit.
     for (let offset = 0; ; offset += 500) {
       let q = getClient().from(table).select('*')
-      if (table === 'officers') q = q.eq('active', true)
+      if (table === 'officers' && !options.includeInactive) q = q.eq('active', true)
       if (table === 'attendance_logs') q = q.is('deleted_at', null)
       if (options.from) q = q.gte('timestamp', new Date(options.from).toISOString())
       if (options.to) q = q.lte('timestamp', new Date(options.to).toISOString())
+      if (options.until) q = q.lt('timestamp', new Date(options.until).toISOString())
+      for (const [key, value] of Object.entries(options.filters ?? {})) q = q.eq(key, value)
       if (options.orderBy) q = q.order(options.orderBy, { ascending: options.ascending ?? false })
       q = q.order(keyFor(table), { ascending: true }).range(offset, offset + 499)
       const rows = check(await q)
@@ -66,22 +68,21 @@ export function createDataAccess(getClient = client) {
   async function saveRecord(table, id, value) {
     const payload = wire(value)
     const row = jsonTables.has(table) ? { id, data: payload } : { ...payload, [keyFor(table)]: id }
-    if (table === 'officers') {
-      delete row.photo_url
-      delete row.status
-      delete row.status_at
-      row.active = true
-    }
+    if (['officers','attendance_logs'].includes(table)) throw new Error('Use the officer or audited attendance workflow.')
     check(await getClient().from(table).upsert(row))
   }
   async function updateRecord(table, id, value) {
+    if (['officers','attendance_logs'].includes(table)) throw new Error('Use the officer or audited attendance workflow.')
     check(await getClient().from(table).update(wire(value)).eq(keyFor(table), id).select(keyFor(table)).single())
   }
-  async function addRecord(table, value) { check(await getClient().from(table).insert(wire(value))) }
-  async function deleteRecord(table, id) {
-    if (table === 'officers') return updateRecord(table, id, { active: false })
+  async function addRecord(table, value) {
+    if (['officers','attendance_logs'].includes(table)) throw new Error('Use the officer or audited attendance workflow.')
+    check(await getClient().from(table).insert(wire(value)))
+  }
+  async function deleteRecord(table, id, reason) {
+    if (table === 'officers') return check(await getClient().rpc('deactivate_officer', { p_uid: id }))
     // Preserve IDs so a delayed reader retry cannot recreate a deleted log.
-    if (table === 'attendance_logs') return updateRecord(table, id, { deleted_at: new Date() })
+    if (table === 'attendance_logs') return check(await getClient().rpc('delete_attendance', { p_id: id, p_reason: reason }))
     check(await getClient().from(table).delete().eq(keyFor(table), id))
   }
   async function uploadPhoto(blob) {
@@ -95,6 +96,23 @@ export function createDataAccess(getClient = client) {
     check(await getClient().rpc('archive_semester', { p_id: id, p_end_date: endDate }))
   }
   async function activateSemester(id) { check(await getClient().rpc('activate_semester', { p_id: id })) }
+  async function saveOfficer(uid, profile, { create = false, reactivate = false } = {}) {
+    return check(await getClient().rpc('save_officer', { p_uid: uid, p_profile: wire(profile), p_create: create, p_reactivate: reactivate }))
+  }
+  async function saveAttendance(id, payload, reason) {
+    return check(await getClient().rpc('correct_attendance', { p_id: id ?? null, p_uid: payload.card_uid,
+      p_type: payload.type, p_timestamp: wire(payload.timestamp), p_auto: payload.is_auto_closed, p_reason: reason }))
+  }
+  async function saveWeek(semesterId, schedule) {
+    return check(await getClient().rpc('save_semester_schedule', { p_semester_id: semesterId, p_schedule: wire(schedule) }))
+  }
+  async function saveCalendarDay(semesterId, date, type, note, requiredUids) {
+    return check(await getClient().rpc('save_calendar_day', { p_semester_id: semesterId, p_date: date, p_type: type, p_note: note, p_required_uids: requiredUids ?? null }))
+  }
+  async function setEnrollment(owner, active) {
+    return check(await getClient().rpc('set_enrollment', { p_owner: owner, p_active: active }))
+  }
+  async function recoverAttendance() { return check(await getClient().rpc('recover_due_attendance')) }
   function watch(table, load, onData, onError = console.error) {
     let stopped = false
     let requested = 0
@@ -123,7 +141,7 @@ export function createDataAccess(getClient = client) {
   }
   const watchRecords = (table, options, onData, onError) => watch(table, () => listRecords(table, options), onData, onError)
   const watchRecord = (table, id, onData, onError) => watch(table, () => getRecord(table, id), onData, onError)
-  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord }
+  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveAttendance, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
 }
 
-export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord } = createDataAccess()
+export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveAttendance, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()

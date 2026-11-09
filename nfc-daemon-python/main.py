@@ -97,6 +97,7 @@ def main() -> None:
         db_path = os.path.join(os.path.dirname(__file__), db_path)
     conn = db.get_connection(db_path)
     db.init_db(conn)
+    db.recover_overdue(conn, close_time=cfg.auto_close_time)
     cloud = CloudClient(cfg.supabase_url, cfg.supabase_publishable_key, cfg.device_id, cfg.device_token)
     registry = ReaderContext(conn, cloud)
     try:
@@ -129,6 +130,11 @@ def main() -> None:
             except Exception:
                 # Known cards still work offline; unknown cards are never admitted.
                 pass
+            try:
+                registry.refresh()  # Reconcile manual corrections before deciding the next transition.
+            except Exception:
+                pass
+            db.recover_overdue(conn,close_time=cfg.auto_close_time)
             if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid):
                 try:
                     registry.refresh()  # Accept a newly enrolled card without waiting for the periodic refresh.

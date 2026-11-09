@@ -17,14 +17,14 @@ class CloudClient:
                           data=json.dumps(payload).encode(), method='POST',
                           headers={'apikey': self.key, 'Content-Type': 'application/json'})
         try:
-            with urlopen(request, timeout=3 if name == 'reader_tap' else 10) as response:
+            with urlopen(request, timeout=3 if name in ('reader_tap','reader_context') else 10) as response:
                 return json.load(response)
         except HTTPError as exc:
             # Do not include request bodies, headers, or device tokens in logs.
             raise ConnectionError(f'Supabase request failed (HTTP {exc.code}); check project setup and reader credentials.') from None
 
-    def context(self):
-        return self.rpc('reader_context')
+    def context(self, event_ids=None):
+        return self.rpc('reader_context',p_event_ids=event_ids or [])
 
     def tap(self, uid):
         return self.rpc('reader_tap', p_uid=uid)

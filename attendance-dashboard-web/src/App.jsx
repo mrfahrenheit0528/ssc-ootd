@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Monitor, Users, History, Zap, CalendarDays, Settings, LogOut, ShieldCheck, GraduationCap } from 'lucide-react'
+import { Monitor, Users, History, Zap, CalendarDays, Settings, LogOut, ShieldCheck, GraduationCap, Menu, X } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
-import { SemesterProvider } from './contexts/SemesterContext'
+import { SemesterProvider, useSemester } from './contexts/SemesterContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import LiveKiosk       from './pages/LiveKiosk'
 import OfficerRoster  from './pages/OfficerRoster'
@@ -23,7 +24,7 @@ const ADMIN_NAV = [
   { to: '/semesters',   label: 'Semesters',   icon: GraduationCap  },
 ]
 
-function Sidebar() {
+function Sidebar({open,onClose}) {
   const { user, isAdmin, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -32,8 +33,10 @@ function Sidebar() {
     navigate('/')
   }
 
-  return (
-    <aside className="fixed inset-y-0 left-0 w-60 flex flex-col bg-slate-900/80 backdrop-blur-md border-r border-white/10 z-30">
+  return (<>
+    {open && <button className="fixed inset-0 bg-black/60 z-20 md:hidden" aria-label="Close navigation" onClick={onClose} />}
+    <aside className={`fixed inset-y-0 left-0 w-60 flex flex-col bg-slate-900/95 backdrop-blur-md border-r border-white/10 z-30 transition-transform md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
+      <button className="md:hidden absolute right-2 top-2 p-2" aria-label="Close navigation" onClick={onClose}><X className="w-4 h-4" /></button>
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-6 border-b border-white/10">
         <div className="w-9 h-9 rounded-xl bg-brand-600/30 border border-brand-500/40 flex items-center justify-center">
@@ -50,6 +53,7 @@ function Sidebar() {
         {PUBLIC_NAV.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
+            onClick={onClose}
             to={to}
             end={to === '/'}
             className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
@@ -68,6 +72,7 @@ function Sidebar() {
             {ADMIN_NAV.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
+                onClick={onClose}
                 to={to}
                 className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
               >
@@ -110,15 +115,19 @@ function Sidebar() {
         )}
         <p className="text-xs text-slate-700 text-center pt-1">NFC Attendance System v2.0</p>
       </div>
-    </aside>
+    </aside></>
   )
 }
 
 function AppShell() {
+  const [navOpen,setNavOpen] = useState(false)
+  const {error,retry} = useSemester()
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 ml-60 p-6 lg:p-8 animate-fade-in">
+      <Sidebar open={navOpen} onClose={()=>setNavOpen(false)} />
+      <main className="flex-1 min-w-0 md:ml-60 p-4 md:p-6 lg:p-8 animate-fade-in">
+        <button className="btn-secondary mb-4 md:hidden" aria-expanded={navOpen} onClick={()=>setNavOpen(true)}><Menu className="w-4 h-4" />Menu</button>
+        {error && <div role="alert" className="card p-4 mb-4 text-red-300">{error}<button className="btn-secondary ml-3" onClick={retry}>Retry semesters</button></div>}
         <Routes>
           {/* Attendance data requires an approved SSC account. */}
           <Route path="/"         element={<ProtectedRoute><LiveKiosk /></ProtectedRoute>}     />

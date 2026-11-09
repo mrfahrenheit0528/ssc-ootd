@@ -6,6 +6,35 @@ The dashboard builds and its current tests pass, but the review found
 correctness gaps to fix before expanding the feature set. This document records
 findings; it does not change application behavior or the live Supabase project.
 
+## Implementation status
+
+The findings below record the original review. The dashboard refinement change
+addresses findings 1-12; apply the new SQL migration before using the updated
+code. See [DASHBOARD_UPGRADE.md](DASHBOARD_UPGRADE.md) for beginner instructions.
+
+| Findings | Implemented change |
+|---|---|
+| 1-4 | Shared school-time assignment/session analysis for Calendar, CSV, and Excel; analyze complete logs before filtering; include no-tap days; pending versus finalized absences |
+| 5 | Semester-scoped Scheduled/Unscheduled weekly revisions; past date revision references; Regular/No Classes/Optional calendar; Holiday removed |
+| 6 | Separate insert/update/restore RPCs; reject duplicate UIDs; retain inactive profiles |
+| 7 | Request-generation guards and fetched report scopes; stale/failed exports disabled |
+| 8 | Admin-only correction/delete RPCs, reason and before/after audit, reader snapshot reconciliation preserving unacknowledged events |
+| 9 | Deterministic local/cloud cutoff recovery and date-aware roster status; unique current-duty calculation |
+| 10 | Seconds-capable editor and unchanged timestamps retained exactly |
+| 11 | Database-time owner-checked enrollment leases and owner-tagged scanner events |
+| 12 | Visible load/connection errors and retry controls |
+
+Mobile navigation is collapsible and school-time grouping is centralized. Roles
+remain admin/officer, as requested; scheduling remains admin-only. Position
+occupancy remains advisory. Account management, independent backups, and live
+hosting/hardware checks remain operational follow-ups.
+
+Validation: **29 dashboard tests, 26 reader tests, and 24 PostgreSQL integration
+tests passed**. Both migrations were applied in a local disposable instance,
+including legacy schedule fixtures. The production build passed with the existing
+large-bundle warning. Browser screenshots/mobile interaction were not verified: both browser
+and native computer-use helpers were unavailable. No hosted data was changed.
+
 ## What was checked
 
 - Authentication context, role checks, protected routes, and the supplied SQL permissions.

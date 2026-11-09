@@ -8,7 +8,8 @@
 //  - Historical roster: view archived officer snapshot from any past semester
 
 import { useState, useEffect, useRef } from 'react'
-import { saveRecord, deleteRecord, watchRecords, watchRecord, uploadPhoto } from '../data'
+import { saveOfficer, setEnrollment, recoverAttendance, deleteRecord, watchRecords, watchRecord, uploadPhoto } from '../data'
+import { dateKey, isDayClosed } from '../utils/attendanceTime'
 import { useAuth } from '../contexts/AuthContext'
 import { useSemester } from '../contexts/SemesterContext'
 import toast from 'react-hot-toast'
@@ -133,47 +134,39 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
   const [lastAutoTap,  setLastAutoTap]  = useState(null)
   const isEdit       = Boolean(officer)
   const fileInputRef = useRef(null)
-  const openedAtMs   = useRef(Date.now())  // timestamp-gate: ignore taps before modal opened
+  const enrollmentOwner = useRef(crypto.randomUUID())
+  const [enrolling,setEnrolling] = useState(false)
+  const [leaseError,setLeaseError] = useState('')
+  const [leaseRetry,setLeaseRetry] = useState(0)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  // ── Enrollment mode flag — tells daemon to skip attendance while modal is open ─
   useEffect(() => {
-    if (isEdit) return // edit modals don't need to block attendance
+    if(isEdit) return
+    let stopped = false
     const owner = crypto.randomUUID()
-    const renew = () => saveRecord('system_settings', 'enrollment_mode', {
-      active: true, owner, opened_at: new Date(), expires_at: new Date(Date.now() + 60000),
-    }).catch(err => toast.error('Could not start card enrollment: ' + err.message))
-    renew()
-    const timer = setInterval(renew, 20000)
-    return () => {
-      clearInterval(timer)
-      // An expiring lease also recovers if the browser crashes or disconnects.
-      saveRecord('system_settings', 'enrollment_mode', { active: false, owner, expires_at: new Date() })
-        .catch(err => console.warn('Enrollment lease will expire:', err))
+    enrollmentOwner.current = owner
+    setEnrolling(false)
+    const renew = async () => {
+      try {
+        const acquired = await setEnrollment(owner,true)
+        if(stopped && acquired) await setEnrollment(owner,false)
+        if(!stopped) {setEnrolling(acquired);setLeaseError(acquired ? '' : 'Another admin is enrolling a card. Close their enrollment window, or wait for its lease to expire, then retry.')}
+      } catch(e) {if(!stopped){setEnrolling(false);setLeaseError('Card enrollment unavailable: '+e.message)}}
     }
-  }, [isEdit])
-
-  // ── Live NFC tap auto-fill (timestamp-gated) ──────────────────────────────
+    renew()
+    const timer = setInterval(renew,20000)
+    return () => {stopped=true;clearInterval(timer);setEnrollment(owner,false).catch(()=>{})}
+  },[isEdit,leaseRetry])
   useEffect(() => {
-    if (isEdit) return // never overwrite UID on edit
+    if(isEdit || !enrolling) return
+    return watchRecord('system_settings','live_scanner',data => {
+      if(!data?.latest_uid || data.owner !== enrollmentOwner.current) return
+      const uid=data.latest_uid.toUpperCase().trim()
+      setForm(f=>({...f,card_uid:uid}));setLastAutoTap(uid)
+    },e=>setLeaseError('Scanner connection interrupted: '+e.message))
+  },[isEdit,enrolling])
 
-    const unsub = watchRecord('system_settings', 'live_scanner', (data) => {
-      if (!data?.latest_uid || !data?.timestamp) return
-
-      const tapMs = data.timestamp?.toMillis?.() ?? 0
-      if (tapMs < openedAtMs.current) return  // stale tap — ignore
-
-      const uid = data.latest_uid.toUpperCase().trim()
-      setForm(f => ({ ...f, card_uid: uid }))
-      setLastAutoTap(uid)
-      toast.success(`⚡ Card detected: ${uid}`, { id: 'nfc-tap', duration: 3000 })
-    })
-
-    return () => unsub()
-  }, [isEdit])
-
-  // ── Photo file picker ─────────────────────────────────────────────────────
   const handlePhotoChange = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -201,7 +194,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
 
   // ── Check position occupancy ──────────────────────────────────────────────
   const selectedPos = form.position || ALL_POSITIONS[0]
-  const otherOfficers = existingOfficers.filter(o => o.card_uid !== form.card_uid)
+  const otherOfficers = existingOfficers.filter(o => o.active !== false && o.card_uid !== form.card_uid)
   const currentOccupants = otherOfficers.filter(o => o.position === selectedPos)
 
   // Find limit for current position
@@ -226,14 +219,15 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
     if (!uid) return toast.error('Card UID is required.')
     if (!firstName || !lastName) return toast.error('First and last name are required.')
 
+    if (!isEdit && existingOfficers.some(o=>o.card_uid===uid)) return toast.error('Card already enrolled. Edit or restore its existing profile.')
     setSaving(true)
     try {
       let photoId = form.photo_url ? (officer?.photo_id ?? null) : null
       if (photoFile) photoId = await uploadPhoto(photoFile)
-      await saveRecord('officers', uid, {
+      await saveOfficer(uid, {
         first_name: firstName, last_name: lastName, position,
-        photo_id: photoId, updated_at: new Date(),
-      })
+        photo_id: photoId,
+      }, {create:!isEdit,reactivate:officer?.active === false})
 
       toast.success(isEdit ? 'Officer updated!' : 'Officer enrolled!')
       onSave()
@@ -253,11 +247,13 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
           <h2 className="font-bold text-white text-lg">
             {isEdit ? 'Edit Officer' : 'Enrol New Officer'}
           </h2>
-          <button id="close-modal-btn" onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+          <button id="close-modal-btn" disabled={saving} onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
 
+        {leaseError && <div role="alert" className="text-amber-300 text-sm">{leaseError}<button className="btn-secondary ml-2" onClick={()=>setLeaseRetry(v=>v+1)}>Retry scanner</button></div>}
+        {officer?.active === false && <p className="text-amber-300 text-sm">Saving this profile will restore this inactive officer.</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Photo upload section */}
           <div className="flex flex-col items-center gap-2 p-3 bg-white/2 border border-white/8 rounded-2xl">
@@ -330,7 +326,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
               {!isEdit && (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  Tap card on reader to scan
+                  {enrolling ? 'Tap card on reader to scan' : 'Scanner enrollment inactive'}
                 </span>
               )}
             </div>
@@ -408,7 +404,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-2">
-            <button type="button" id="cancel-officer-btn" onClick={onClose} className="btn-secondary">Cancel</button>
+            <button type="button" id="cancel-officer-btn" disabled={saving} onClick={onClose} className="btn-secondary">Cancel</button>
             <button type="submit" id="save-officer-btn" disabled={saving} className="btn-primary">
               {saving
                 ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving…</>
@@ -424,7 +420,8 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
 
 // ── Officer Card ──────────────────────────────────────────────────────────────
 function OfficerCard({ officer, onEdit, onDelete, isAdmin, isArchived }) {
-  const { card_uid, first_name, last_name, position, status, photo_url } = officer
+  const { card_uid, first_name, last_name, position, photo_url } = officer
+  const status = isArchived ? null : officer.status === 'ON_DUTY' && officer.status_at && dateKey(officer.status_at) === dateKey() && !isDayClosed(dateKey()) ? 'ON_DUTY' : 'OFF_DUTY'
   const initials = `${first_name?.[0] ?? ''}${last_name?.[0] ?? ''}`.toUpperCase()
 
   return (
@@ -452,12 +449,12 @@ function OfficerCard({ officer, onEdit, onDelete, isAdmin, isArchived }) {
           <div className="flex items-center gap-1 flex-shrink-0">
             <button id={`edit-${card_uid}`} onClick={() => onEdit(officer)}
               className="p-2 hover:bg-white/10 rounded-lg transition-colors text-slate-400 hover:text-slate-200"
-              title="Edit officer & photo">
+              title={officer.active === false ? "Restore officer" : "Edit officer & photo"}>
               <Pencil className="w-4 h-4" />
             </button>
-            <button id={`delete-${card_uid}`} onClick={() => onDelete(officer)}
+            <button disabled={officer.active === false} id={`delete-${card_uid}`} onClick={() => onDelete(officer)}
               className="p-2 hover:bg-red-500/15 rounded-lg transition-colors text-slate-400 hover:text-red-400"
-              title="Delete officer">
+              title="Deactivate officer">
               <Trash2 className="w-4 h-4" />
             </button>
           </div>
@@ -467,7 +464,7 @@ function OfficerCard({ officer, onEdit, onDelete, isAdmin, isArchived }) {
         {status ? (
           <span className={status === 'ON_DUTY' ? 'badge-on-duty' : 'badge-off-duty'}>
             <span className={`w-1.5 h-1.5 rounded-full ${status === 'ON_DUTY' ? 'bg-emerald-400' : 'bg-slate-500'}`} />
-            {status === 'ON_DUTY' ? 'On Duty' : 'Off Duty'}
+            {officer.active === false ? 'Inactive' : status === 'ON_DUTY' ? 'On Duty' : 'Off Duty'}
           </span>
         ) : (
           <span className="badge-off-duty">Archived</span>
@@ -487,6 +484,11 @@ export default function OfficerRoster() {
   const [loading,  setLoading]              = useState(true)
   const [modal,    setModal]                = useState(null) // null | 'add' | officer object
   const [search,   setSearch]               = useState('')
+  const [showInactive,setShowInactive] = useState(false)
+  const [error,setError] = useState('')
+  const [retry,setRetry] = useState(0)
+  const [,setClock] = useState(0)
+  useEffect(()=>{const timer=setInterval(()=>setClock(v=>v+1),30000);return()=>clearInterval(timer)},[])
 
   // Check if viewing an archived semester
   const selectedSemObj = semesters.find(s => s.id === selectedSemester)
@@ -499,27 +501,31 @@ export default function OfficerRoster() {
       return
     }
 
-    const unsub = watchRecords('officers', {}, (rows) => {
+    setLoading(true);setError('')
+    recoverAttendance().catch(e=>setError('Could not recover attendance: '+e.message))
+    const unsub = watchRecords('officers', {includeInactive:isAdmin}, (rows) => {
+      setError('')
       setOfficers(rows)
       setLoading(false)
     }, err => {
-      toast.error('Could not load officers: ' + err.message)
+      setError('Could not load officers: '+err.message)
       setLoading(false)
     })
     return () => unsub()
-  }, [selectedSemester, isArchivedView, selectedSemObj])
+  }, [selectedSemester, isArchivedView, selectedSemObj,isAdmin,retry])
 
   const handleDelete = async (officer) => {
-    if (!window.confirm(`Delete ${officer.first_name} ${officer.last_name}? This cannot be undone.`)) return
+    if (!window.confirm(`Deactivate ${officer.first_name} ${officer.last_name}? Attendance history will be retained. You can restore this officer later.`)) return
     try {
       await deleteRecord('officers', officer.card_uid)
-      toast.success('Officer deleted.')
+      toast.success('Officer deactivated.')
     } catch (err) {
       toast.error('Delete failed: ' + err.message)
     }
   }
 
-  const filtered = officers.filter(o => {
+  const visibleOfficers = officers.filter(o=>isArchivedView || showInactive || o.active !== false)
+  const filtered = visibleOfficers.filter(o => {
     const q = search.toLowerCase()
     return !q
       || o.first_name?.toLowerCase().includes(q)
@@ -528,8 +534,8 @@ export default function OfficerRoster() {
       || o.card_uid?.toLowerCase().includes(q)
   })
 
-  const onDuty  = officers.filter(o => o.status === 'ON_DUTY').length
-  const offDuty = officers.length - onDuty
+  const onDuty  = visibleOfficers.filter(o => o.active !== false && o.status === 'ON_DUTY' && o.status_at && dateKey(o.status_at) === dateKey() && !isDayClosed(dateKey())).length
+  const offDuty = visibleOfficers.length - onDuty
 
   return (
     <div className="space-y-6 animate-slide-up">
@@ -596,6 +602,8 @@ export default function OfficerRoster() {
         </div>
       )}
 
+      {error && <div role="alert" className="card p-4 text-red-300">{error}<button className="btn-secondary ml-3" onClick={()=>setRetry(v=>v+1)}>Retry</button></div>}
+      {isAdmin && !isArchivedView && <label className="flex gap-2 text-sm text-slate-400"><input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)} />Show inactive officers (Edit to restore)</label>}
       <input id="officer-search" className="input max-w-sm"
         placeholder="Search by name, position, or UID…"
         value={search} onChange={e => setSearch(e.target.value)} />

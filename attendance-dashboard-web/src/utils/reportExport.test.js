@@ -58,3 +58,29 @@ test('updated SheetJS writes a readable multi-sheet workbook with text cells', (
     fs.rmdirSync(directory)
   }
 })
+
+test('CSV and workbook both include an all-absent day without recorded taps',async(t)=>{
+  const options={dateFrom:'2026-11-09',dateTo:'2026-11-09',logs:[],officerMap:{A:{first_name:'Ana',last_name:'Cruz'}},context:{semesters:[{id:'term',start_date:'2026-11-01'}],scheduleVersions:[{id:'v1',semester_id:'term',revision:1,schedule:{1:{type:'scheduled',required_uids:['A']}}}]},now:new Date('2026-11-10T12:00:00+08:00')}
+  let blob
+  t.mock.method(URL,'createObjectURL',value=>{blob=value;return 'blob:test'})
+  t.mock.method(URL,'revokeObjectURL',()=>{})
+  const previous=globalThis.document
+  globalThis.document={createElement:()=>({click(){}})}
+  const cwd=process.cwd(),directory=fs.mkdtempSync(join(tmpdir(),'ssc-absent-'))
+  let filename
+  try {
+    assert.equal(exportCSVReport(options),1)
+    const csv=await blob.text()
+    assert.ok(csv.includes('ABSENT'));assert.ok(csv.includes('Ana Cruz'))
+    process.chdir(directory);XLSX.set_fs(fs)
+    const result=exportXLSXReport(options);filename=result.filename
+    assert.equal(result.totalRecords,1)
+    const workbook=XLSX.read(fs.readFileSync(filename),{type:'buffer'})
+    assert.equal(workbook.Sheets['All Records (Master)'].F5.v,'ABSENT')
+  } finally {
+    process.chdir(cwd)
+    if(previous===undefined)delete globalThis.document;else globalThis.document=previous
+    if(filename&&fs.existsSync(join(directory,filename)))fs.unlinkSync(join(directory,filename))
+    fs.rmdirSync(directory)
+  }
+})

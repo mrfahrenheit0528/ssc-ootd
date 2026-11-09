@@ -4,24 +4,12 @@
 // Uses Supabase Realtime to receive live updates the moment a tag is tapped.
 
 import { useState, useEffect, useRef } from 'react'
-import { watchRecords } from '../data'
-import { format, startOfDay, endOfDay } from 'date-fns'
+import { watchRecords, recoverAttendance } from '../data'
+import { format } from 'date-fns'
+import { dateKey,dateBounds,formatTime } from '../utils/attendanceTime'
+import { buildAttendanceSessions, latestAttendanceByOfficer } from '../utils/attendanceSessions'
 import { useSemester } from '../contexts/SemesterContext'
-import { Monitor, LogIn, LogOut, Clock, Users, Wifi, WifiOff, GraduationCap } from 'lucide-react'
-
-function StatusPill({ type, isAuto }) {
-  return type === 'CLOCK_IN' ? (
-    <span className="badge-clock-in">
-      <LogIn className="w-3 h-3" />
-      Clock In
-    </span>
-  ) : (
-    <span className="badge-clock-out">
-      <LogOut className="w-3 h-3" />
-      Clock Out{isAuto && <span className="opacity-60 ml-1">(auto)</span>}
-    </span>
-  )
-}
+import { Monitor, LogOut, Clock, Users, Wifi, WifiOff, GraduationCap } from 'lucide-react'
 
 function StatCard({ icon: Icon, label, value, accent }) {
   const accents = {
@@ -44,7 +32,7 @@ function StatCard({ icon: Icon, label, value, accent }) {
 
 function SessionRow({ session, isNew }) {
   const { officer_name, card_uid, clockIn, clockOut } = session
-  const fmt = (ts) => ts?.toDate ? format(ts.toDate(), 'hh:mm:ss a') : '—'
+  const fmt = formatTime
 
   return (
     <tr className={`border-b border-white/5 transition-all duration-500 ${isNew ? 'bg-brand-500/10 animate-fade-in' : 'hover:bg-white/3'}`}>
@@ -64,7 +52,7 @@ function SessionRow({ session, isNew }) {
       </td>
       <td className="px-4 py-3 text-sm font-mono">
         {clockOut ? (
-          <span className="text-slate-400">{fmt(clockOut.timestamp)}</span>
+          <span className="text-slate-400">{fmt(clockOut.timestamp)}{clockOut.is_auto_closed && <span className="block text-xs text-slate-500">Auto-closed</span>}</span>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-emerald-400">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
@@ -72,72 +60,35 @@ function SessionRow({ session, isNew }) {
           </span>
         )}
       </td>
-      {clockOut?.is_auto_closed && (
-        <td className="px-4 py-3">
-          <span className="text-xs text-slate-500 italic">auto-closed</span>
-        </td>
-      )}
     </tr>
   )
-}
-
-// Group flat log events into per-officer sessions:
-// Each session = { officer_name, card_uid, clockIn, clockOut }
-// Multiple sessions per officer only when they clock in again after clocking out.
-function buildSessions(logs) {
-  // Work chronologically (ascending)
-  const asc = [...logs].sort((a, b) => {
-    const ta = a.timestamp?.toMillis?.() ?? 0
-    const tb = b.timestamp?.toMillis?.() ?? 0
-    return ta - tb
-  })
-
-  // Per-officer open session tracker
-  const openSessions = {} // card_uid → session object
-  const sessions = []
-
-  for (const log of asc) {
-    const uid = log.card_uid
-    if (log.type === 'CLOCK_IN') {
-      const session = { officer_name: log.officer_name, card_uid: uid, clockIn: log, clockOut: null }
-      openSessions[uid] = session
-      sessions.push(session)
-    } else if (log.type === 'CLOCK_OUT') {
-      if (openSessions[uid]) {
-        openSessions[uid].clockOut = log
-        delete openSessions[uid]
-      } else {
-        // Orphan clock-out (no matching clock-in today) — show as its own row
-        sessions.push({ officer_name: log.officer_name, card_uid: uid, clockIn: null, clockOut: log })
-      }
-    }
-  }
-
-  // Return descending (most recent first)
-  return sessions.reverse()
 }
 
 export default function LiveKiosk() {
   const { activeSemester }        = useSemester()
   const [logs, setLogs]           = useState([])
   const [loading, setLoading]     = useState(true)
-  const [connected, setConnected] = useState(true)
+  const [connected, setConnected] = useState(false)
+  const [error,setError] = useState('')
+  const [retry,setRetry] = useState(0)
   const [newUids, setNewUids]     = useState(new Set())
   const prevUids = useRef(new Set())
 
-  const [dayKey, setDayKey] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  const [dayKey, setDayKey] = useState(() => dateKey())
   const today = new Date(dayKey + 'T12:00:00')
   useEffect(() => {
-    const timer = setInterval(() => setDayKey(format(new Date(), 'yyyy-MM-dd')), 30000)
+    const timer = setInterval(() => setDayKey(dateKey()), 30000)
     return () => clearInterval(timer)
   }, [])
 
   useEffect(() => {
     setLoading(true)
     prevUids.current = new Set()
-    const date = new Date(dayKey + 'T12:00:00')
+    const recover = () => recoverAttendance().catch(e=>setError('Attendance recovery pending: '+e.message))
+    recover()
+    const timer=setInterval(recover,30000)
     const unsub = watchRecords('attendance_logs', {
-      from: startOfDay(date), to: endOfDay(date), orderBy: 'timestamp',
+      ...dateBounds(dayKey), orderBy: 'timestamp',
     }, (incoming) => {
         // Detect newly active officer UIDs
         const freshUids = new Set()
@@ -153,20 +104,21 @@ export default function LiveKiosk() {
 
         setLogs(incoming)
         setLoading(false)
-        setConnected(true)
+        setConnected(true);setError('')
       },
       (err) => {
         console.error('Attendance subscription error:', err)
-        setConnected(false)
+        setConnected(false);setError('Live attendance unavailable. Check the connection and retry.')
         setLoading(false)
       },
     )
 
-    return () => unsub()
-  }, [dayKey])
+    return () => {clearInterval(timer);unsub()}
+  }, [dayKey,retry])
 
-  const sessions   = buildSessions(logs)
-  const onDutyNow  = sessions.filter(s => !s.clockOut).length
+  const sessions   = buildAttendanceSessions(logs)
+  const latest = latestAttendanceByOfficer(logs)
+  const onDutyNow = [...latest.values()].filter(log=>log.type === 'CLOCK_IN').length
   const clockedOut = new Set(sessions.filter(s => s.clockOut).map(s => s.card_uid)).size
   const totalOfficers = new Set(logs.map(l => l.card_uid)).size
 
@@ -201,6 +153,7 @@ export default function LiveKiosk() {
         </div>
       </div>
 
+      {error && <div role="alert" className="card p-4 text-amber-300">{error}<button className="btn-secondary ml-3" onClick={()=>setRetry(v=>v+1)}>Retry</button></div>}
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard icon={Users}  label="Officers Today"    value={totalOfficers}            accent="brand"   />

@@ -7,15 +7,17 @@ export function SemesterProvider({ children }) {
   const { isMember, user } = useAuth()
   const [semesters, setSemesters] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error,setError] = useState('')
+  const [retry,setRetry] = useState(0)
   useEffect(() => {
     if (!isMember) { setSemesters([]); setLoading(false); return }
-    setLoading(true)
+    setLoading(true);setError('')
     return watchRecords('semesters', { orderBy: 'start_date' }, rows => {
-      setSemesters(rows)
+      setError('');setSemesters(rows)
       setLoading(false)
-    }, error => { console.error(error); setLoading(false) })
-  }, [isMember, user?.id])
+    }, error => { setError('Could not load semesters: '+error.message);setSemesters([]);setLoading(false) })
+  }, [isMember, user?.id,retry])
   const activeSemester = semesters.find(s => s.status === 'active') ?? null
-  return <SemesterContext.Provider value={{ semesters, activeSemester, loading }}>{children}</SemesterContext.Provider>
+  return <SemesterContext.Provider value={{ semesters, activeSemester, loading, error, retry:()=>setRetry(v=>v+1) }}>{children}</SemesterContext.Provider>
 }
 export const useSemester = () => useContext(SemesterContext)

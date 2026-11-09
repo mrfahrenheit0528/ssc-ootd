@@ -60,8 +60,9 @@ class ReaderContext(threading.Thread):
         self._stop_event = threading.Event()
 
     def refresh(self):
-        context = self._cloud.context()
-        db.save_roster(self._conn, context['officers'])
+        context = self._cloud.context(db.context_event_ids(self._conn))
+        if db.reconcile_context(self._conn, context):
+            db.save_roster(self._conn, context['officers'])
         return context
 
     def is_enrolled(self, uid):

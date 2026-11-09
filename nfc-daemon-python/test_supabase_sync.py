@@ -1,5 +1,6 @@
 """Offline durability, scoped transport and duplicate-safe retry tests."""
 import json
+from datetime import datetime, timedelta, timezone
 import sqlite3
 import tempfile
 import unittest
@@ -108,6 +109,59 @@ class TestSupabaseSync(unittest.TestCase):
             self.assertEqual(request.get_header('Apikey'), 'publishable-key')
             self.assertEqual(json.loads(request.data)['p_token'], 'private-device-token')
             self.assertNotIn('service_role', request.full_url)
+
+
+    def snapshot(self, events=None, known=None, stamp=None):
+        return {'snapshot_at':stamp or datetime.now(timezone.utc).isoformat(),'date':db.today_key(),
+                'events':events or [],'known_event_ids':known or [],'officers':[{'card_uid':'AAAA1111'}]}
+
+    def test_manual_clock_out_reconciles_before_next_clock_in(self):
+        db.record_transition(self.conn,'AAAA1111','CLOCK_IN')
+        local=db.get_unsynced_events(self.conn)[0]
+        db.mark_synced(self.conn,local['id'])
+        out={'id':'manual-out','card_uid':'AAAA1111','type':'CLOCK_OUT','timestamp':datetime.now(timezone.utc).isoformat()}
+        self.cloud.context.return_value=self.snapshot([out],[local['event_id']])
+        ReaderContext(self.conn,self.cloud).refresh()
+        self.assertEqual(db.get_daily_status(self.conn,'AAAA1111'),'OFF_DUTY')
+        self.assertTrue(db.record_transition(self.conn,'AAAA1111','CLOCK_IN'))
+
+    def test_cloud_tombstone_does_not_replay_an_acknowledged_local_event(self):
+        db.record_transition(self.conn,'AAAA1111','CLOCK_IN');row=db.get_unsynced_events(self.conn)[0]
+        db.mark_synced(self.conn,row['id'])
+        db.reconcile_context(self.conn,self.snapshot(known=[row['event_id']]))
+        self.assertEqual(db.get_daily_status(self.conn,'AAAA1111'),'OFF_DUTY')
+
+    def test_unsent_tap_survives_an_empty_cloud_snapshot(self):
+        db.record_transition(self.conn,'AAAA1111','CLOCK_IN')
+        row=db.get_unsynced_events(self.conn)[0]
+        db.reconcile_context(self.conn,self.snapshot())
+        self.assertEqual(db.get_daily_status(self.conn,'AAAA1111'),'ON_DUTY')
+        self.assertEqual(db.get_unsynced_events(self.conn)[0]['event_id'],row['event_id'])
+
+    def test_tap_acknowledged_during_request_still_survives_stale_snapshot(self):
+        snapshot=self.snapshot()
+        db.record_transition(self.conn,'AAAA1111','CLOCK_IN');row=db.get_unsynced_events(self.conn)[0]
+        db.mark_synced(self.conn,row['id'])
+        db.reconcile_context(self.conn,snapshot)
+        self.assertEqual(db.get_daily_status(self.conn,'AAAA1111'),'ON_DUTY')
+
+    def test_older_snapshot_cannot_replace_a_newer_reconciliation(self):
+        first=self.snapshot();second=self.snapshot()
+        second['events']=[{'id':'in','card_uid':'AAAA1111','type':'CLOCK_IN','timestamp':datetime.now(timezone.utc).isoformat()}]
+        self.assertTrue(db.reconcile_context(self.conn,second))
+        self.assertFalse(db.reconcile_context(self.conn,first))
+        self.assertEqual(db.get_daily_status(self.conn,'AAAA1111'),'ON_DUTY')
+
+    def test_missed_cutoff_after_reboot_keeps_source_date_and_stable_uuid(self):
+        event_id='10000000-0000-0000-0000-000000000001'
+        with self.conn:
+            self.conn.execute("INSERT INTO daily_state(card_uid,status,last_tap_date,last_event_id,last_event_at) VALUES ('AAAA1111','ON_DUTY','2026-11-08',?,'2026-11-08T09:00:00+08:00')",(event_id,))
+        self.assertEqual(db.recover_overdue(self.conn,datetime(2026,11,10,tzinfo=timezone.utc)),1)
+        row=db.get_unsynced_events(self.conn)[0]
+        self.assertEqual(row['event_id'],db.auto_close_id(event_id))
+        self.assertEqual(row['timestamp'],'2026-11-08T21:00:00+08:00')
+        self.assertEqual(db.recover_overdue(self.conn,datetime(2026,11,10,tzinfo=timezone.utc)),0)
+        self.assertEqual(len(db.get_unsynced_events(self.conn)),1)
 
 
 if __name__ == '__main__': unittest.main()

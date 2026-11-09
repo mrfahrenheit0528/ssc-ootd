@@ -12,6 +12,9 @@ Free project. Firebase development data is not imported. No Docker is required.
 The code is migrated; cloud schema, accounts, credentials, and website hosting
 must still be configured using the guide.
 
+Already running Supabase? Follow [the dashboard upgrade guide](docs/DASHBOARD_UPGRADE.md)
+for the new semester/calendar migration before starting the updated code.
+
 ## Features
 
 - NFC clock-in and supervised clock-out through a dedicated clock-out tag.
@@ -22,7 +25,9 @@ must still be configured using the guide.
 - Compressed officer photos stored directly as PostgreSQL binary data.
 - Archived roster snapshots retain their original photo references.
 - CSV and Excel exports with assigned/voluntary attendance calculations.
-- Local daily auto-close while the reader daemon is running.
+- Semester weekly assignments and a day-type calendar, managed by admins.
+- Audited attendance corrections with reader-state reconciliation.
+- School-time 9 PM auto-close with missed-cutoff recovery on reconnect.
 
 ## Architecture
 

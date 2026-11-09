@@ -3,11 +3,12 @@
 // Attendance sessions with paired clock-in/out times, date filters, search, and exports.
 // Admins also get: edit entry, delete entry, add manual entry.
 
-import { useState, useEffect, useCallback } from 'react'
-import { listRecords, updateRecord, deleteRecord, addRecord, Instant } from '../data'
+import { useState, useEffect, useRef } from 'react'
+import { listRecords, deleteRecord, saveAttendance, recoverAttendance, Instant } from '../data'
 import { useAuth } from '../contexts/AuthContext'
 import { useSemester } from '../contexts/SemesterContext'
-import { format, startOfDay, endOfDay, subDays } from 'date-fns'
+import { format } from 'date-fns'
+import { dateKey, dateBounds, addDateDays, timeInput } from '../utils/attendanceTime'
 import toast from 'react-hot-toast'
 import {
   History, Search, Download, LogIn, LogOut, RefreshCw,
@@ -33,36 +34,34 @@ function LogEditModal({ log, officers, onClose, onSave }) {
   const [officerUid, setOfficerUid] = useState(log?.card_uid ?? '')
   const [type,       setType]       = useState(log?.type ?? 'CLOCK_IN')
   const [dateStr,    setDateStr]    = useState(
-    log?.timestamp?.toDate ? format(log.timestamp.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')
+    dateKey(log?.timestamp ?? new Date())
   )
   const [timeStr, setTimeStr] = useState(
-    log?.timestamp?.toDate ? format(log.timestamp.toDate(), 'HH:mm') : format(new Date(), 'HH:mm')
+    timeInput(log?.timestamp ?? new Date())
   )
   const [isAuto, setIsAuto]   = useState(log?.is_auto_closed ?? false)
   const [saving, setSaving]   = useState(false)
+  const [reason, setReason] = useState('')
 
   const selectedOfficer = officers.find(o => o.card_uid === officerUid)
 
   const handleSave = async () => {
     if (!officerUid.trim()) return toast.error('Officer is required.')
+    if (reason.trim().length < 3) return toast.error('Enter a correction reason of at least 3 characters.')
     setSaving(true)
     try {
-      const ts = new Date(`${dateStr}T${timeStr}:00`)
+      const unchanged = log && dateStr === dateKey(log.timestamp) && timeStr === timeInput(log.timestamp)
+      const ts = unchanged ? log.timestamp.toDate() : new Date(`${dateStr}T${timeStr.length === 5 ? timeStr + ':00' : timeStr}+08:00`)
       const payload = {
         card_uid:        officerUid.toUpperCase().trim(),
         officer_name:    selectedOfficer ? `${selectedOfficer.first_name} ${selectedOfficer.last_name}` : officerUid,
         type,
-        timestamp:       Instant.fromDate(ts),
+        timestamp:       unchanged ? log.timestamp : Instant.fromDate(ts),
         is_auto_closed:  isAuto,
         manually_edited: true,
       }
-      if (isAdd) {
-        await addRecord('attendance_logs', payload)
-        toast.success('Log entry added.')
-      } else {
-        await updateRecord('attendance_logs', log.id, payload)
-        toast.success('Log entry updated.')
-      }
+      await saveAttendance(log?.id, payload, reason)
+      toast.success(isAdd ? 'Log entry added.' : 'Log entry updated.')
       onSave()
     } catch (err) {
       toast.error(`Error: ${err.message}`)
@@ -124,10 +123,11 @@ function LogEditModal({ log, officers, onClose, onSave }) {
             </div>
             <div>
               <label className="label">Time</label>
-              <input type="time" className="input" value={timeStr} onChange={e => setTimeStr(e.target.value)} />
+              <input type="time" step="1" className="input" value={timeStr} onChange={e => setTimeStr(e.target.value)} />
             </div>
           </div>
 
+          <div><label className="label">Reason for correction</label><textarea className="input" required minLength={3} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} placeholder="Explain why this entry needs changing" /></div>
           {/* Auto-closed flag */}
           <label className="flex items-center gap-3 cursor-pointer">
             <input type="checkbox" checked={isAuto} onChange={e => setIsAuto(e.target.checked)} className="accent-indigo-500" />
@@ -175,81 +175,60 @@ function SessionTimeCell({ log, kind, isAdmin, onEdit, onDelete }) {
 export default function LogHistory() {
   const { isAdmin }            = useAuth()
   const { semesters }          = useSemester()
-  const todayStr               = format(new Date(), 'yyyy-MM-dd')
+  const todayStr               = dateKey()
 
   const [dateFrom,         setDateFrom]         = useState(todayStr)
   const [dateTo,           setDateTo]           = useState(todayStr)
   const [selectedSemester, setSelectedSemester] = useState('')
   const [search,           setSearch]           = useState('')
   const [logs,             setLogs]             = useState([])
-  const [officers,         setOfficers]         = useState([])
-  const [officerMap,       setOfficerMap]       = useState({})
-  const [dayConfigMap,     setDayConfigMap]     = useState({})
-  const [weeklySchedule,   setWeeklySchedule]   = useState(null)
-  const [weeklyEffFrom,    setWeeklyEffFrom]    = useState(null)
-  const [loading,          setLoading]          = useState(false)
-  const [exporting,        setExporting]        = useState(false)
-  const [fetched,          setFetched]          = useState(false)
-  const [modal,            setModal]            = useState(null) // null | 'add' | log obj
-
-  // Load day config and officers context for assignment resolution
-  useEffect(() => {
-    fetchAttendanceContext(selectedSemester, semesters)
-      .then(ctx => {
-        setDayConfigMap(ctx.dayConfigMap)
-        setWeeklySchedule(ctx.weeklySchedule)
-        setWeeklyEffFrom(ctx.weeklyEffectiveFrom)
-        setOfficers(ctx.officers)
-        setOfficerMap(ctx.officerMap)
-      })
-      .catch(err => console.error('Failed to load attendance context:', err))
-  }, [selectedSemester, semesters])
-
-  const fetchRange = useCallback(async (fromStr, toStr) => {
-    setLoading(true)
+  const [context, setContext] = useState(null)
+  const [loadedScope, setLoadedScope] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [modal, setModal] = useState(null)
+  const generation = useRef(0)
+  const fetched = Boolean(loadedScope)
+  const officerMap = context?.officerMap ?? {}
+  const officers = (context?.officers ?? []).filter(o=>o.active !== false)
+  const fetchRange = async (from, to, semesterId = '') => {
+    if (!from || !to || from > to) return toast.error('Choose a valid date range.')
+    const current = ++generation.current
+    setLoading(true); setError('')
     try {
-      const from = Instant.fromDate(startOfDay(new Date(fromStr + 'T00:00:00')))
-      const to   = Instant.fromDate(endOfDay(new Date(toStr   + 'T00:00:00')))
-      const rows = await listRecords('attendance_logs', { from: from.toDate(), to: to.toDate(), orderBy: 'timestamp' })
-      setLogs(rows)
-      setFetched(true)
-    } catch (err) {
-      toast.error('Failed to load logs: ' + err.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const fetchLogs = () => fetchRange(dateFrom, dateTo)
-
-  useEffect(() => { fetchLogs() }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const applyPreset = (days) => {
-    setSelectedSemester('')
-    const from = days === 0 ? todayStr : format(subDays(new Date(), days), 'yyyy-MM-dd')
-    setDateFrom(from)
-    setDateTo(todayStr)
-    fetchRange(from, todayStr)
+      await recoverAttendance()
+      const [rows, ctx] = await Promise.all([
+        listRecords('attendance_logs', { ...dateBounds(from,to), orderBy:'timestamp' }),
+        fetchAttendanceContext(semesterId),
+      ])
+      if (current !== generation.current) return
+      setLogs(rows); setContext(ctx); setLoadedScope({from,to,semesterId})
+    } catch (e) { if (current === generation.current) setError('Could not load attendance: ' + e.message) }
+    finally { if (current === generation.current) setLoading(false) }
   }
-
-  const handleSemesterChange = (semId) => {
-    setSelectedSemester(semId)
-    if (!semId) return
-    const sem = semesters.find(s => s.id === semId)
-    if (sem) {
-      const from = sem.start_date
-      const to   = sem.end_date || todayStr
-      setDateFrom(from)
-      setDateTo(to)
-      fetchRange(from, to)
-      toast.success(`Loaded logs for "${sem.name}"`)
-    }
+  const fetchLogs = () => fetchRange(dateFrom,dateTo,selectedSemester)
+  useEffect(() => { fetchRange(todayStr,todayStr); return () => { generation.current++ } }, [])
+  const applyPreset = days => {
+    const from = addDateDays(todayStr,-(days > 1 ? days-1 : days))
+    const to = days === 1 ? from : todayStr
+    setDateFrom(from); setDateTo(to); setSelectedSemester(''); fetchRange(from,to)
   }
-
+  const handleSemesterChange = id => {
+    setSelectedSemester(id)
+    const sem = semesters.find(s => s.id === id)
+    if (!sem) return
+    const to = sem.end_date || (sem.start_date > todayStr ? sem.start_date : todayStr)
+    setDateFrom(sem.start_date); setDateTo(to); fetchRange(sem.start_date,to,id)
+  }
+  const stale = !loadedScope || loadedScope.from !== dateFrom || loadedScope.to !== dateTo || loadedScope.semesterId !== selectedSemester
+  const exportReady = !loading && !error && !stale
   const handleDelete = async (log) => {
-    if (!window.confirm(`Delete this ${log.type === 'CLOCK_IN' ? 'clock-in' : 'clock-out'} entry?`)) return
+    const reason = window.prompt('Why should this attendance entry be deleted? (At least 3 characters)')
+    if (reason == null) return
+    if (reason.trim().length < 3) return toast.error('A deletion reason is required.')
     try {
-      await deleteRecord('attendance_logs', log.id)
+      await deleteRecord('attendance_logs', log.id, reason)
       setLogs(prev => prev.filter(l => l.id !== log.id))
       toast.success('Entry deleted.')
     } catch (err) {
@@ -259,54 +238,21 @@ export default function LogHistory() {
 
   const sessions = buildAttendanceSessions(logs)
   const filteredSessions = filterAttendanceSessions(sessions, search)
-  // Search whole sessions before selecting raw events so exports retain pairs.
-  const filtered = filteredSessions.flatMap(session => [session.clockIn, session.clockOut].filter(Boolean))
-
-  // Export multi-sheet XLSX report with assigned vs voluntary distinction
-  const handleExportXLSX = async () => {
-    if (filtered.length === 0) return toast.error('No data to export.')
+  const filtered = filteredSessions.flatMap(s => [s.clockIn,s.clockOut].filter(Boolean))
+  const reportOptions = () => ({logs,dateFrom:loadedScope.from,dateTo:loadedScope.to,context,
+    officerMap,search,selectedSemester:loadedScope.semesterId,semesters:context.semesters})
+  const handleExportXLSX = () => {
+    if (!exportReady) return
     setExporting(true)
-    try {
-      const res = exportXLSXReport({
-        logs: filtered,
-        dateFrom,
-        dateTo,
-        selectedSemester,
-        semesters,
-        officerMap,
-        dayConfigMap,
-        weeklySchedule,
-        weeklyEffectiveFrom: weeklyEffFrom,
-      })
-      toast.success(`Downloaded ${res.filename} with ${res.sheetsCount} sheets.`)
-    } catch (err) {
-      console.error('XLSX export error:', err)
-      toast.error('Export failed: ' + err.message)
-    } finally {
-      setExporting(false)
-    }
+    try { const result = exportXLSXReport(reportOptions()); toast.success(`Downloaded ${result.filename}`) }
+    catch (e) { toast.error(e.message) } finally { setExporting(false) }
   }
-
-  // Export CSV with assignment distinction
   const handleExportCSV = () => {
-    if (filtered.length === 0) return toast.error('No data to export.')
-    const sem = semesters.find(s => s.id === selectedSemester)
-    const label = sem
-      ? sem.name.replace(/\s+/g, '_').toLowerCase()
-      : (dateFrom === dateTo ? dateFrom : `${dateFrom}_to_${dateTo}`)
-    const count = exportCSVReport({
-      logs: filtered,
-      label,
-      officerMap,
-      dayConfigMap,
-      weeklySchedule,
-      weeklyEffectiveFrom: weeklyEffFrom,
-    })
-    toast.success(`Exported ${count} records to CSV.`)
+    if (!exportReady) return
+    try { const count = exportCSVReport({...reportOptions(),label:`${loadedScope.from}_to_${loadedScope.to}`}); toast.success(`Exported ${count} records.`) }
+    catch (e) { toast.error(e.message) }
   }
-
-  const activeSemObj = semesters.find(s => s.id === selectedSemester)
-
+  const activeSemObj = context?.semesters.find(s => s.id === loadedScope?.semesterId)
   return (
     <div className="space-y-6 animate-slide-up">
       {/* Header */}
@@ -320,7 +266,7 @@ export default function LogHistory() {
             Browse, filter by semester or custom date range, and export reports.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && (
             <button id="add-log-btn" onClick={() => setModal('add')} className="btn-secondary">
               <Plus className="w-4 h-4" /> Add Entry
@@ -329,7 +275,7 @@ export default function LogHistory() {
           <button
             id="export-xlsx-btn"
             onClick={handleExportXLSX}
-            disabled={filtered.length === 0 || exporting}
+            disabled={!exportReady || exporting}
             className="btn-success"
             title="Download multi-sheet Excel report (.xlsx)"
           >
@@ -343,7 +289,7 @@ export default function LogHistory() {
           <button
             id="export-csv-btn"
             onClick={handleExportCSV}
-            disabled={filtered.length === 0}
+            disabled={!exportReady}
             className="btn-secondary"
             title="Download session-grouped CSV"
           >
@@ -421,6 +367,9 @@ export default function LogHistory() {
         </div>
       </div>
 
+      {error && <div role="alert" className="card p-4 text-red-300">{error}<button className="btn-secondary ml-3" onClick={fetchLogs}>Retry</button></div>}
+      {stale && fetched && <p className="text-amber-300 text-sm">Filters changed. Click Fetch Logs to load this range before exporting.</p>}
+      {loadedScope && <p className="text-slate-400 text-xs">Showing {loadedScope.from} to {loadedScope.to} (Asia/Manila). Reports include assigned officers with no taps. Today's absences finalize at 9 PM.</p>}
       {/* Table */}
       <div className="card overflow-hidden">
         <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between flex-wrap gap-2">
@@ -465,7 +414,7 @@ export default function LogHistory() {
                   const logDateStr = session.date
                   const ts = new Date(`${logDateStr}T12:00:00`)
                   const edited = session.clockIn?.manually_edited || session.clockOut?.manually_edited
-                  const dayCfg = resolveDay(logDateStr, dayConfigMap, weeklySchedule, weeklyEffFrom)
+                  const dayCfg = resolveDay(logDateStr, context)
                   const isAssigned = (dayCfg?.required_uids ?? []).includes(session.card_uid)
                   const officer = officerMap[session.card_uid]
 
@@ -505,7 +454,7 @@ export default function LogHistory() {
       {modal && (
         <LogEditModal
           log={modal === 'add' ? null : modal}
-          officers={officers}
+          officers={modal !== 'add' && !officers.some(o => o.card_uid === modal.card_uid) ? [...officers,{card_uid:modal.card_uid,first_name:modal.officer_name,last_name:'(historical)'}] : officers}
           onClose={() => setModal(null)}
           onSave={() => { setModal(null); fetchLogs() }}
         />

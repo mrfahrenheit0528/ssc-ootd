@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildAttendanceSessions, filterAttendanceSessions } from './attendanceSessions.js'
+import { buildAttendanceSessions, filterAttendanceSessions, latestAttendanceByOfficer } from './attendanceSessions.js'
 
 function log(id, uid, type, time) {
   return { id, card_uid: uid, officer_name: `Officer ${uid}`, type, timestamp: `2026-11-10T${time}` }
@@ -61,4 +61,14 @@ test('an extra clock-in never hides an earlier unmatched event', () => {
   assert.equal(sessions[0].clockIn.id, 'in2')
   assert.equal(sessions[1].clockIn.id, 'in1')
   assert.equal(sessions[1].clockOut, null)
+})
+
+test('current duty follows the latest event despite duplicate open sessions',()=>{
+  const logs=[
+    {id:'1',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T09:00:00+08:00'},
+    {id:'2',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T10:00:00+08:00'},
+    {id:'3',card_uid:'A',type:'CLOCK_OUT',timestamp:'2026-11-09T11:00:00+08:00'},
+  ]
+  assert.equal(latestAttendanceByOfficer(logs).get('A').type,'CLOCK_OUT')
+  assert.equal(buildAttendanceSessions(logs).length,2)
 })

@@ -13,6 +13,7 @@
 // Only one semester can be 'active' at a time.
 // Admins can unarchive any past semester at any time.
 
+import { dateKey } from '../utils/attendanceTime'
 import { useState } from 'react'
 import { saveRecord, updateRecord, deleteRecord, Instant, archiveSemester, activateSemester } from '../data'
 import { format, parseISO } from 'date-fns'
@@ -125,7 +126,7 @@ function EditSemesterModal({ semester, onClose, onSave }) {
 // ── Start New Semester Form ───────────────────────────────────────────────────
 function StartSemesterForm({ onStarted }) {
   const [name,      setName]      = useState('')
-  const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [startDate, setStartDate] = useState(dateKey())
   const [saving,    setSaving]    = useState(false)
 
   const handleStart = async () => {
@@ -204,13 +205,13 @@ function StartSemesterForm({ onStarted }) {
 // ── Active Semester Card ──────────────────────────────────────────────────────
 function ActiveSemesterCard({ semester, onEdit }) {
   const [ending,  setEnding]  = useState(false)
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [endDate, setEndDate] = useState(dateKey())
   const [confirm, setConfirm] = useState(false)
 
   const handleEndSemester = async () => {
     setEnding(true)
     try {
-      await archiveSemester(semester.id, endDate || format(new Date(), 'yyyy-MM-dd'))
+      await archiveSemester(semester.id, endDate || dateKey())
       toast.success(`Semester "${semester.name}" has been ended and archived.`)
       setConfirm(false)
     } catch (err) {

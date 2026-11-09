@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createClient } from '@supabase/supabase-js'
-import { createDataAccess } from './data.js'
+import { createDataAccess, Instant } from './data.js'
 
 function repository(handler) {
   const sdk = createClient('https://ssc-test.supabase.co', 'sb_publishable_test', {
@@ -62,27 +62,46 @@ test('JSON settings retain day configuration fields and native record IDs', asyn
   assert.equal(config.effective_from, '2026-11-09')
 })
 
-test('profile updates preserve relational photo IDs and omit derived display fields', async () => {
-  let sent
-  const repo = repository((_url, options) => { sent = JSON.parse(options.body); return new Response(null, { status: 201 }) })
-  await repo.saveRecord('officers', 'AAAA1111', { first_name: 'Ana', photo_id: 'photo-id', photo_url: 'data:image/jpeg;base64,test', status: 'ON_DUTY' })
-  assert.equal(sent.photo_id, 'photo-id')
-  assert.equal(sent.card_uid, 'AAAA1111')
-  assert.equal(sent.active, true)
-  assert.equal(sent.photo_url, undefined)
-  assert.equal(sent.status, undefined)
+test('profile create and restore are distinct server operations', async () => {
+  const calls=[]
+  const repo=repository((url,options)=>{calls.push([url.pathname,JSON.parse(options.body)]);return json(null)})
+  await repo.saveOfficer('AAAA1111',{first_name:'Ana',photo_id:'photo-id'},{create:true})
+  await repo.saveOfficer('AAAA1111',{first_name:'Ana'},{reactivate:true})
+  assert.equal(calls[0][0],'/rest/v1/rpc/save_officer')
+  assert.equal(calls[0][1].p_create,true)
+  assert.equal(calls[1][1].p_reactivate,true)
 })
 
-test('deleting attendance writes a tombstone instead of removing its retry ID', async () => {
-  const repo = repository((_url, options) => {
-    assert.equal(options.method, 'PATCH')
-    assert.ok(JSON.parse(options.body).deleted_at)
-    return json({ id: 'event-id' })
+test('deleting attendance requires a reason through the audited RPC', async () => {
+  const repo=repository((url,options)=>{
+    assert.equal(url.pathname,'/rest/v1/rpc/delete_attendance')
+    assert.deepEqual(JSON.parse(options.body),{p_id:'event-id',p_reason:'Duplicate tap'})
+    return json(null)
   })
-  await repo.deleteRecord('attendance_logs', 'event-id')
+  await repo.deleteRecord('attendance_logs','event-id','Duplicate tap')
+})
+
+test('attendance queries use an exclusive school-day upper bound',async()=>{
+  const repo=repository(url=>{
+    assert.equal(url.searchParams.get('timestamp'),'lt.2026-11-10T16:00:00.000Z')
+    return json([])
+  })
+  await repo.listRecords('attendance_logs',{until:'2026-11-11T00:00:00+08:00'})
 })
 
 test('failed authorization propagates to the UI instead of reporting success', async () => {
   const repo = repository(() => json({ code: '42501', message: 'permission denied' }, 403))
   await assert.rejects(repo.uploadPhoto(new Blob([new Uint8Array([255,216,255])], { type: 'image/jpeg' })), error => error.code === '42501')
+})
+
+test('unchanged correction timestamps preserve PostgreSQL microseconds',async()=>{
+  const timestamp=new Instant('2026-11-09T09:15:42.123456+08:00')
+  const repo=repository((url,options)=>{
+    assert.equal(url.pathname,'/rest/v1/rpc/correct_attendance')
+    const sent=JSON.parse(options.body)
+    assert.equal(sent.p_timestamp,'2026-11-09T09:15:42.123456+08:00')
+    assert.equal(sent.p_reason,'Fix action only')
+    return json('event-id')
+  })
+  await repo.saveAttendance('event-id',{card_uid:'A',type:'CLOCK_OUT',timestamp,is_auto_closed:false},'Fix action only')
 })

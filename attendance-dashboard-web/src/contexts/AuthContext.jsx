@@ -13,7 +13,9 @@ export function AuthProvider({ children }) {
     let stopped = false
     let previousId = null
     let roleChannel = null
+    let latestSession = null
     const apply = async session => {
+      latestSession = session
       const current = ++generation
       const u = session?.user ?? null
       setUser(u)
@@ -26,13 +28,13 @@ export function AuthProvider({ children }) {
         roleChannel = null
         previousId = u?.id ?? null
         if (u) roleChannel = supabase.channel(`ssc-role-${u.id}`)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'user_roles', filter: `user_id=eq.${u.id}` }, () => apply(session))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'user_roles', filter: `user_id=eq.${u.id}` }, () => apply(latestSession))
           .subscribe()
       }
       if (u) {
         const { data, error } = await supabase.from('user_roles').select('role').eq('user_id', u.id).maybeSingle()
         if (stopped || current !== generation) return
-        setRole(data?.role ?? null)
+        setRole(error ? null : data?.role ?? null)
         if (error) setAuthError('Could not check account permissions. Please sign in again.')
         else if (!data) setAuthError('Your account needs an SSC officer or admin role. Contact your administrator.')
       }
@@ -42,7 +44,14 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setTimeout(() => { if (!stopped) apply(session) }, 0)
     })
+    const recheck = () => {if(!stopped) apply(latestSession)}
+    window.addEventListener('focus',recheck)
+    window.addEventListener('online',recheck)
+    const timer = setInterval(recheck,60000)
     return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus',recheck)
+      window.removeEventListener('online',recheck)
       stopped = true
       generation++
       subscription.unsubscribe()

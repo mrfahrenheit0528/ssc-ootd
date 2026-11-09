@@ -1,41 +1,22 @@
-"""
-scheduler.py
-------------
-9 PM auto-close background thread.
+"""Recover the school-time cutoff at startup and every poll, including missed days.
 
-At 21:00 daily, this job:
-  1. Queries daily_state for every officer still marked ON_DUTY.
-  2. Inserts a CLOCK_OUT row (is_auto_closed=True) into sync_queue for each.
-  3. Flips their daily_state to OFF_DUTY.
-  4. The SupabaseSyncer thread picks those rows up on its next cycle.
-
-Implementation
---------------
-Uses the `schedule` library (single-threaded, no external deps beyond pip).
-A lightweight watcher loop runs in a daemon thread, calling
-`schedule.run_pending()` every 30 seconds.
-
-The `schedule` library is NOT thread-safe, so we use a dedicated thread
-with its own scheduler instance (`_scheduler`) to avoid conflicts.
+trigger_now remains an explicit force-close helper for reader simulations.
 """
 
 import logging
 import threading
-import time
-
-import schedule as _schedule_lib
 
 logger = logging.getLogger(__name__)
 
 
 class AutoCloseScheduler(threading.Thread):
     """
-    Daemon thread that runs the 9 PM auto-close job via the `schedule` library.
+    Daemon thread that checks for due school-time cutoffs, including missed days.
 
     Args:
         db_conn:         Active SQLite connection (WAL-safe shared use).
         close_time:      "HH:MM" string for the daily auto-close (default "21:00").
-        poll_interval:   Seconds between schedule.run_pending() checks (default 30).
+        poll_interval:   Seconds between cutoff checks (default 30).
     """
 
     def __init__(self, db_conn, close_time: str = "21:00", poll_interval: int = 30) -> None:
@@ -44,10 +25,6 @@ class AutoCloseScheduler(threading.Thread):
         self._close_time = close_time
         self._poll_interval = poll_interval
         self._stop_event = threading.Event()
-
-        # Use a dedicated scheduler instance (not the global one) for isolation
-        self._scheduler = _schedule_lib.Scheduler()
-        self._scheduler.every().day.at(close_time).do(self._run_auto_close)
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -58,7 +35,11 @@ class AutoCloseScheduler(threading.Thread):
             self._close_time,
         )
         while not self._stop_event.is_set():
-            self._scheduler.run_pending()
+            import db
+            try:
+                db.recover_overdue(self._conn, close_time=self._close_time)
+            except Exception:
+                logger.exception('Cutoff recovery will retry.')
             self._stop_event.wait(self._poll_interval)
         logger.info("AutoCloseScheduler stopped.")
 
@@ -69,7 +50,7 @@ class AutoCloseScheduler(threading.Thread):
     def _run_auto_close(self) -> None:
         """
         Force-close all ON_DUTY officers.
-        Called by the schedule library at 21:00.
+        Used only by trigger_now for explicit simulations.
         """
         import db  # local import avoids circular deps
 

@@ -82,6 +82,8 @@ def load_config(path: str = _CONFIG_PATH) -> AppConfig:
     if not cfg.supabase_publishable_key or len(cfg.device_token) < 32:
         raise ValueError('Configure the Supabase publishable key and register this reader; see docs/SUPABASE_SETUP.md.')
     UUID(cfg.device_id)
+    if cfg.attendance_timezone != 'Asia/Manila' or cfg.auto_close_time != '21:00':
+        raise ValueError('SSC attendance uses Asia/Manila and a 21:00 cutoff; the reader and cloud must agree.')
     if min(cfg.sync_interval_seconds, cfg.debounce_seconds, cfg.clock_out_window_seconds) < 1:
         raise ValueError('Intervals must be positive.')
     logger.info("Config loaded: clock_out_uid=%s  debounce=%ds  clock_out_window=%ds",

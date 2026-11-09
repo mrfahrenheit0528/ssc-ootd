@@ -14,11 +14,12 @@ connection from tests rather than touching the real file).
 
 import logging
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from functools import wraps
 import json
 import threading
-from uuid import uuid4
+from uuid import uuid4, UUID
+import hashlib
 from zoneinfo import ZoneInfo
 
 _LOCK = threading.RLock()
@@ -91,6 +92,11 @@ def init_db(conn: sqlite3.Connection) -> None:
         for row in conn.execute('SELECT id FROM sync_queue WHERE event_id IS NULL').fetchall():
             conn.execute('UPDATE sync_queue SET event_id=? WHERE id=?', (str(uuid4()), row[0]))
         conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS queue_event_id ON sync_queue(event_id)')
+        state_columns = {r[1] for r in conn.execute('PRAGMA table_info(daily_state)')}
+        for column in ('last_event_id', 'last_event_at'):
+            if column not in state_columns:
+                conn.execute(f'ALTER TABLE daily_state ADD COLUMN {column} TEXT')
+        conn.execute('CREATE TABLE IF NOT EXISTS reader_metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL)')
         conn.execute('CREATE TABLE IF NOT EXISTS officer_cache (card_uid TEXT PRIMARY KEY, data TEXT NOT NULL)')
     logger.info("Database initialised (sync_queue + daily_state tables ready).")
 
@@ -236,12 +242,13 @@ def record_transition(conn, card_uid, action_type, is_auto_closed=False):
     if (action_type == 'CLOCK_IN' and current == 'ON_DUTY') or (action_type == 'CLOCK_OUT' and current != 'ON_DUTY'):
         return False
     status = 'ON_DUTY' if action_type == 'CLOCK_IN' else 'OFF_DUTY'
+    ts, event_id = datetime.now(timezone.utc).isoformat(), str(uuid4())
     with conn:
         conn.execute('INSERT INTO sync_queue(card_uid,action_type,timestamp,is_auto_closed,event_id) VALUES (?,?,?,?,?)',
-                     (card_uid, action_type, datetime.now(timezone.utc).isoformat(), int(is_auto_closed), str(uuid4())))
-        conn.execute("INSERT INTO daily_state(card_uid,status,last_tap_date) VALUES (?,?,?) "
-                     "ON CONFLICT(card_uid) DO UPDATE SET status=excluded.status,last_tap_date=excluded.last_tap_date",
-                     (card_uid,status,today_key()))
+                     (card_uid, action_type, ts, int(is_auto_closed), event_id))
+        conn.execute("INSERT INTO daily_state(card_uid,status,last_tap_date,last_event_id,last_event_at) VALUES (?,?,?,?,?) "
+                     "ON CONFLICT(card_uid) DO UPDATE SET status=excluded.status,last_tap_date=excluded.last_tap_date,last_event_id=excluded.last_event_id,last_event_at=excluded.last_event_at",
+                     (card_uid,status,today_key(),event_id,ts))
     return True
 
 
@@ -256,3 +263,76 @@ def save_roster(conn, officers):
 @synchronized
 def is_enrolled(conn, uid):
     return conn.execute('SELECT 1 FROM officer_cache WHERE card_uid=?',(uid.upper(),)).fetchone() is not None
+
+
+def auto_close_id(clock_in_id):
+    # Matches PostgreSQL md5(id::text || ':auto-close')::uuid, including UUID bits.
+    return str(UUID(hex=hashlib.md5((clock_in_id + ':auto-close').encode()).hexdigest()))
+
+
+def parse_time(value):
+    return datetime.fromisoformat(value.replace('Z', '+00:00'))
+
+
+@synchronized
+def context_event_ids(conn):
+    ids = [r['event_id'] for r in conn.execute('SELECT event_id,timestamp FROM sync_queue').fetchall()
+           if parse_time(r['timestamp']).astimezone(_ATTENDANCE_ZONE).date().isoformat() == today_key()]
+    if len(ids) > 5000:
+        raise RuntimeError('Too many daily events to reconcile safely; attendance remains queued.')
+    return ids
+
+
+@synchronized
+def reconcile_context(conn, context):
+    """Merge an authoritative snapshot with events not yet present on the server.
+
+    Stable known IDs include tombstones and timestamp edits. Local rows created
+    or acknowledged while the request was in flight still survive the merge.
+    This never deletes the upload queue or overwrites an unsent officer tap.
+    """
+    snapshot = context['snapshot_at']
+    previous = conn.execute("SELECT value FROM reader_metadata WHERE key='snapshot_at'").fetchone()
+    if previous and parse_time(previous[0]) >= parse_time(snapshot):
+        return False
+    day = context['date']
+    known = set(context.get('known_event_ids', []))
+    events = {e['id']: e for e in context['events'] if not e.get('deleted_at')}
+    for row in conn.execute('SELECT * FROM sync_queue').fetchall():
+        if row['event_id'] not in known and parse_time(row['timestamp']).astimezone(_ATTENDANCE_ZONE).date().isoformat() == day:
+            events[row['event_id']] = {'id':row['event_id'],'card_uid':row['card_uid'],'timestamp':row['timestamp'],'type':row['action_type'],'is_auto_closed':bool(row['is_auto_closed'])}
+    latest = {}
+    for event in sorted(events.values(), key=lambda e:(parse_time(e['timestamp']), bool(e.get('is_auto_closed')), e.get('created_at',''), e['id'])):
+        if parse_time(event['timestamp']).astimezone(_ATTENDANCE_ZONE).date().isoformat() == day:
+            latest[event['card_uid']] = event
+    with conn:
+        conn.execute("UPDATE daily_state SET status='OFF_DUTY' WHERE last_tap_date=?",(day,))
+        for uid,event in latest.items():
+            conn.execute("INSERT INTO daily_state(card_uid,status,last_tap_date,last_event_id,last_event_at) VALUES (?,?,?,?,?) "
+                         "ON CONFLICT(card_uid) DO UPDATE SET status=excluded.status,last_tap_date=excluded.last_tap_date,last_event_id=excluded.last_event_id,last_event_at=excluded.last_event_at",
+                         (uid,'ON_DUTY' if event['type']=='CLOCK_IN' else 'OFF_DUTY',day,event['id'],event['timestamp']))
+        conn.execute("INSERT INTO reader_metadata(key,value) VALUES ('snapshot_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(snapshot,))
+    return True
+
+
+@synchronized
+def recover_overdue(conn, now=None, close_time='21:00'):
+    """Recover missed cutoffs across reboots, retaining the original duty date."""
+    now = now or datetime.now(timezone.utc)
+    count = 0
+    with conn:
+        for row in conn.execute("SELECT * FROM daily_state WHERE status='ON_DUTY'").fetchall():
+            cutoff = datetime.fromisoformat(row['last_tap_date']+'T'+close_time).replace(tzinfo=_ATTENDANCE_ZONE)
+            event_id, event_at = row['last_event_id'], row['last_event_at']
+            if not event_id:
+                old = conn.execute("SELECT event_id,timestamp FROM sync_queue WHERE card_uid=? AND action_type='CLOCK_IN' ORDER BY timestamp DESC,id DESC LIMIT 1",(row['card_uid'],)).fetchone()
+                if old: event_id,event_at = old
+            if event_at: cutoff = max(cutoff,parse_time(event_at)+timedelta(microseconds=1))
+            if cutoff > now: continue
+            # Legacy state-only rows have no source UUID; retain a stable fallback.
+            event_id = auto_close_id(event_id or row['card_uid']+':'+row['last_tap_date'])
+            conn.execute('INSERT OR IGNORE INTO sync_queue(card_uid,action_type,timestamp,is_auto_closed,event_id) VALUES (?,?,?,?,?)',
+                         (row['card_uid'],'CLOCK_OUT',cutoff.isoformat(),1,event_id))
+            conn.execute("UPDATE daily_state SET status='OFF_DUTY',last_event_id=?,last_event_at=? WHERE card_uid=?",(event_id,cutoff.isoformat(),row['card_uid']))
+            count += 1
+    return count
