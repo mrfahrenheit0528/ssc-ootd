@@ -131,7 +131,7 @@ export default function DayConfig() {
           <button className="btn-primary" disabled={saving} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save semester schedule'}</button>
         </div>}
         <div className="space-y-2"><DayTypeLegend /><ScheduleLegend /></div>
-        <div className="grid grid-cols-7 gap-1 sm:gap-2">{WEEKDAYS.map(d => <div key={d} className="text-xs text-center text-slate-400">{d.slice(0,3)}</div>)}{Array.from({length:days[0].getDay()},(_,i) => <div key={`pad-${i}`} />)}{days.map(day => {
+        <div key={`${semesterId}|${format(month,'yyyy-MM')}`} className="calendar-grid calendar-grid-enter grid grid-cols-7 gap-1 sm:gap-2">{WEEKDAYS.map(d => <div key={d} className="text-xs text-center text-slate-400">{d.slice(0,3)}</div>)}{Array.from({length:days[0].getDay()},(_,i) => <div key={`pad-${i}`} />)}{days.map(day => {
           const ds = format(day,'yyyy-MM-dd')
           const cfg = dirty ? resolveDayWithDraft(ds,context,schedule) : resolveDay(ds,context)
           const outside = ds < term.start_date || (term.end_date && ds > term.end_date)

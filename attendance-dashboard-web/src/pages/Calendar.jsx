@@ -1,7 +1,7 @@
 import Select from '../components/Select'
 import { useEffect, useRef, useState } from 'react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, parseISO } from 'date-fns'
-import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listRecords, recoverAttendance } from '../data'
 import { useSemester } from '../contexts/SemesterContext'
@@ -33,7 +33,7 @@ export default function Calendar() {
         const logs = from <= to ? await listRecords('attendance_logs',{...dateBounds(from,to),orderBy:'timestamp'}) : []
         if (current !== generation.current) return
         const options = {logs,dateFrom:from,dateTo:to,context,officerMap:context.officerMap,selectedSemester:semesterId,semesters:context.semesters}
-        setResult({scope:`${monthFrom}|${monthTo}|${semesterId}`,options,days:from <= to ? analyzeAttendanceData(options).dailyReports : []})
+        setResult({scope:`${monthFrom}|${monthTo}|${semesterId}`,revision:current,options,days:from <= to ? analyzeAttendanceData(options).dailyReports : []})
       } catch(e) { if(current === generation.current) setError(e.message) }
       finally { if(current === generation.current) setLoading(false) }
     }
@@ -42,6 +42,7 @@ export default function Calendar() {
   },[monthFrom,monthTo,semesterId,retry])
   const days = eachDayOfInterval({start:startOfMonth(month),end:endOfMonth(month)})
   const currentScope = result?.scope === `${monthFrom}|${monthTo}|${semesterId}`
+  const calendarBusy = loading || (!currentScope && !error)
   const exportReport = kind => {
     if(loading || error || !currentScope || !result?.days.length) return
     try {
@@ -55,17 +56,19 @@ export default function Calendar() {
     <p className="text-sm text-slate-400">Assigned attendance and volunteers are counted separately. Absences finalize at 9 PM (Asia/Manila). Admins manage day types in Day Config.</p>
     <div className="card p-4 flex flex-wrap items-center justify-between gap-4">
       <Select aria-label="Calendar semester" className="input max-w-sm" value={semesterId} onChange={e => {setSemesterId(e.target.value); const term=semesters.find(s=>s.id===e.target.value); if(term) setMonth(startOfMonth(parseISO(term.start_date)))}}><option value="">All semesters</option>{semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
-      <div className="flex gap-3 items-center"><button className="btn-secondary p-2" aria-label="Previous month" onClick={() => setMonth(m=>addMonths(m,-1))}><ChevronLeft /></button><span>{format(month,'MMMM yyyy')}</span><button className="btn-secondary p-2" aria-label="Next month" onClick={() => setMonth(m=>addMonths(m,1))}><ChevronRight /></button><button className="btn-secondary" onClick={()=>setRetry(v=>v+1)}>Refresh</button></div>
+      <div className="flex gap-3 items-center"><button className="btn-secondary p-2" aria-label="Previous month" onClick={() => setMonth(m=>addMonths(m,-1))}><ChevronLeft /></button><span>{format(month,'MMMM yyyy')}</span><button className="btn-secondary p-2" aria-label="Next month" onClick={() => setMonth(m=>addMonths(m,1))}><ChevronRight /></button><button className="btn-secondary" disabled={calendarBusy} onClick={()=>setRetry(v=>v+1)}><RefreshCw className={`w-4 h-4 ${calendarBusy ? 'motion-safe:animate-spin' : ''}`} />Refresh</button></div>
     </div>
     <div className="space-y-2"><DayTypeLegend /><ScheduleLegend /></div>
     {error && <div role="alert" className="card p-4 text-red-300">Could not load calendar: {error}<button className="btn-secondary ml-3" onClick={()=>setRetry(v=>v+1)}>Retry</button></div>}
-    {loading || !currentScope && !error ? <p className="text-slate-400">Loading calendar...</p> : !error && <div className="card p-2 sm:p-4 grid grid-cols-7 gap-1 sm:gap-2">
+    {!error && <div className="relative" aria-busy={calendarBusy}>
+      {calendarBusy && <div role="status" className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none"><span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/95 px-4 py-2 text-xs text-slate-300 shadow-lg"><RefreshCw className="w-3.5 h-3.5 motion-safe:animate-spin" />Updating calendar…</span></div>}
+      <div key={currentScope ? `${result.scope}|${result.revision}` : `${monthFrom}|${semesterId}|loading`} className={`calendar-grid card p-2 sm:p-4 grid grid-cols-7 gap-1 sm:gap-2 ${calendarBusy ? 'calendar-grid-loading' : 'calendar-grid-enter'}`}>
       {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div className="text-center text-xs text-slate-400" key={d}>{d}</div>)}
       {Array.from({length:days[0].getDay()},(_,i)=><div key={`pad-${i}`} />)}
-      {days.map(day=>{const ds=format(day,'yyyy-MM-dd'),report=result?.days.find(d=>d.date===ds);return <button key={ds} data-day-type={report?.dayType} disabled={!report} onClick={()=>setSelected(report)} className={`calendar-day p-1 sm:p-3 min-h-24 sm:min-h-32 rounded-lg border text-left border-white/10 ${!report ? 'opacity-20' : ''}`}>
+      {days.map(day=>{const ds=format(day,'yyyy-MM-dd'),report=currentScope ? result.days.find(d=>d.date===ds) : null;return <button key={ds} data-day-type={report?.dayType} disabled={calendarBusy || !report} onClick={()=>setSelected(report)} className={`calendar-day p-1 sm:p-3 min-h-24 sm:min-h-32 rounded-lg border text-left border-white/10 ${!report && !calendarBusy ? 'opacity-20' : ''}`}>
         <span className="flex items-center justify-between gap-1"><span className={ds===dateKey()?'text-brand-300 font-bold':'text-slate-200'}>{day.getDate()}</span>{report && <ScheduleIndicator type={report.scheduleType} dayType={report.dayType} />}</span>{report && <><span className="sr-only">{report.dayTypeLabel}</span>{!['unscheduled','no_classes','optional'].includes(report.status) && <span className="block text-[10px] sm:text-xs mt-1">{report.fulfillmentStatus}</span>}<span className="hidden sm:block text-xs text-slate-400">Assigned: {report.requiredAttendedCount}/{report.requiredCount}</span>{report.voluntaryOfficersCount>0 && <span className="hidden sm:block text-xs text-violet-300">{report.voluntaryOfficersCount} volunteer(s)</span>}</>}
       </button>})}
-    </div>}
+    </div></div>}
     {selected && <div role="dialog" aria-modal="true" aria-labelledby="attendance-day-title" className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 animate-fade-in"><div className="card bg-slate-900 max-w-4xl w-full p-5 max-h-[90vh] overflow-auto space-y-4 animate-slide-up">
       <div className="flex justify-between gap-3"><h2 id="attendance-day-title" className="font-semibold">{selected.date} - {selected.dayTypeLabel}</h2><button aria-label="Close attendance day" onClick={()=>setSelected(null)}><X /></button></div>
       <p className="text-sm text-slate-400">{selected.fulfillmentStatus} | Assigned present {selected.requiredAttendedCount}/{selected.requiredCount} | Absent {selected.requiredAbsentCount} | Pending {selected.pendingCount} | Volunteers {selected.voluntaryOfficersCount}</p>
