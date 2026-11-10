@@ -29,11 +29,30 @@ function DayEditor({ day, context, semesterId, officers, onClose, onSaved }) {
       <div className="flex justify-between"><h2 id="calendar-editor-title" className="font-semibold">{format(parseISO(day), 'MMMM d, yyyy')}</h2><button disabled={saving} onClick={onClose} aria-label="Close day editor"><X /></button></div>
       <label className="label">Calendar day type</label>
       <select className="input" value={type} onChange={e => setType(e.target.value)}>{Object.entries(DAY_TYPE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
-      <p className="text-xs text-slate-400">Regular follows the semester assignments. No Classes and Optional do not create required attendance or absences.</p>
+      {type === 'regular' && <p className="text-xs text-slate-400">Required officers follow the semester's weekly assignments unless you choose a different list below.</p>}
       <label className="label">Note</label><input className="input" maxLength={1000} value={note} onChange={e => setNote(e.target.value)} />
-      <label className="flex gap-2 text-sm"><input type="checkbox" checked={custom} onChange={e => setCustom(e.target.checked)} />Use a different officer list for this date</label>
-      {!custom && <p className="text-xs text-slate-400">The weekly assignment is preserved. An empty custom list explicitly means no officers are required.</p>}
-      {custom && <div className="space-y-2 max-h-48 overflow-auto">{officers.filter(o=>o.active !== false || uids.includes(o.card_uid)).map(o => <label key={o.card_uid} className="flex gap-2 text-sm"><input type="checkbox" checked={uids.includes(o.card_uid)} onChange={() => setUids(list => list.includes(o.card_uid) ? list.filter(v => v !== o.card_uid) : [...list,o.card_uid])} />{o.first_name} {o.last_name}{o.active === false ? ' (Inactive)' : ''}</label>)}</div>}
+      {type === 'regular' ? (
+        <div key="required-officers" className="space-y-3 animate-fade-in">
+          <label className="flex gap-2 text-sm">
+            <input type="checkbox" checked={custom} disabled={saving} onChange={e => setCustom(e.target.checked)} />
+            Use a different officer list for this date
+          </label>
+          {!custom && <p className="text-xs text-slate-400">The weekly assignment is preserved. An empty custom list explicitly means no officers are required.</p>}
+          {custom && <div className="space-y-2 max-h-48 overflow-auto">
+            {officers.filter(o => o.active !== false || uids.includes(o.card_uid)).map(o => (
+              <label key={o.card_uid} className="flex gap-2 text-sm">
+                <input type="checkbox" checked={uids.includes(o.card_uid)} disabled={saving}
+                  onChange={() => setUids(list => list.includes(o.card_uid) ? list.filter(v => v !== o.card_uid) : [...list,o.card_uid])} />
+                {o.first_name} {o.last_name}{o.active === false ? ' (Inactive)' : ''}
+              </label>
+            ))}
+          </div>}
+        </div>
+      ) : (
+        <p key="voluntary-attendance" role="status" className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300 animate-fade-in">
+          No officers are required on this date. Any attendance will be recorded as voluntary.
+        </p>
+      )}
       <div className="flex justify-end gap-2"><button className="btn-secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="btn-primary" disabled={saving} onClick={save}>{saving ? 'Saving...' : 'Save day'}</button></div>
     </div>
   </div>

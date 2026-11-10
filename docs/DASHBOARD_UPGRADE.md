@@ -104,10 +104,15 @@ Both calendars use **📌 Scheduled** and **➖ Unscheduled** markers, with a le
 and hover labels. The icons indicate the saved schedule; No Classes and Optional
 still suppress required attendance. Full labels remain in the schedule forms.
 
-Normally leave **Use a different officer list for this date** unchecked: that
-inherits the weekly officers. Checking it with no officers selected explicitly
-means nobody is required. No Classes and Optional suppress required attendance
-even when a weekly or custom officer list exists.
+On **Regular** days, normally leave **Use a different officer list for this date**
+unchecked: that inherits the weekly officers. Checking it with no officers selected
+explicitly means nobody is required.
+
+On **No Classes** and **Optional** days, the checkbox and officer list are hidden.
+The form explains that nobody is required and any attendance is voluntary.
+Weekly assignments and any existing custom list are retained, so switching the
+date back to Regular restores the assignment settings. Saving a non-required day
+does not delete those settings.
 
 ## 6. Check the corrected behavior
 
