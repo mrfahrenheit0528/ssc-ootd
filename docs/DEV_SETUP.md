@@ -7,7 +7,7 @@ It covers creating an empty Free project, running the SQL migration, creating
 Auth users and roles, configuring local development, registering the reader,
 and hosting the website independently of both PCs.
 
-Development prerequisites: Node.js 22.12+ or 24+, Python 3.10+, and an ACR122U
+Development prerequisites: Node.js 22.13+ or 24+, Python 3.10+, and an ACR122U
 reader for hardware testing. Docker and a local PostgreSQL server are optional
 and are not needed for normal operation. The SSC PC needs only the native
 reader dependencies, not Node.js or a database server.
@@ -140,9 +140,25 @@ See [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups
 
 ## Dashboard UI conventions
 
-Use the shared `.input`, button, card, and calendar interaction styles. Native
-selects and their option lists use an opaque dark background and light text,
-including Windows/Edge dropdown popups. Keep `color-scheme: dark` on selects.
+Use the shared `.input`, button, card, and calendar interaction styles. All dashboard
+dropdowns use `components/Select.jsx`, built on Radix Select. Keep an accessible
+`aria-label` (or linked label), the existing `option`/`optgroup` data, and the
+controlled `value`/`onChange` interface. Empty options such as Current Roster and
+All semesters retain their original empty-string value. The component maps this
+internally to a selectable menu entry and retains real values for named forms.
+
+Dropdown menus render in a portal above modal dialogs to avoid clipped lists.
+Reuse the shared `select-*` CSS for gradient triggers, rotating chevrons, selected
+checkmarks, scrollable groups, collision-aware positioning, and open/close
+animations. Reduced-motion preferences disable those dropdown animations.
+Native dark select styles remain as a fallback, not a second dropdown design.
+
+`npm test` includes DOM interaction tests for the actual shared component:
+keyboard navigation, typeahead, disabled/grouped choices, outside dismissal,
+touch selection, asynchronous options, empty defaults, and form safety. The
+DOM harness stubs missing browser layout APIs; it does not verify screenshots,
+positioning geometry, or real touch hardware. JSX tests run through `tsx`; DOM
+and testing-library dependencies are development-only.
 
 Reuse the existing `animate-slide-up` page/dialog entrance and `animate-fade-in`
 modal backdrop animations, plus the shared button hover/focus/press transitions.

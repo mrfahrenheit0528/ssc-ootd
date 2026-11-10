@@ -244,7 +244,7 @@ Source: [Where to find Supabase keys](https://supabase.com/docs/guides/getting-s
 5. Wait for the installation to finish before entering the next command.
 
 **Checkpoint:** The terminal prompt ends in `attendance-dashboard-web`, and
-`npm.cmd ci` finishes without an error. Node.js 22.12+ or 24+ must be installed.
+`npm.cmd ci` finishes without an error. Node.js 22.13+ or 24+ must be installed.
 
 ### 4C. Edit the local settings file
 

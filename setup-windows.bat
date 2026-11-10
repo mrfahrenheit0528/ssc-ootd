@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Install Node.js 22.12+ or 24+ for dashboard development.
+  echo Install Node.js 22.13+ or 24+ for dashboard development.
   exit /b 1
 )
 where python >nul 2>nul

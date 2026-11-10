@@ -91,6 +91,58 @@
     @apply bg-slate-900 text-slate-100;
   }
 
+  /* One dropdown design for filters and forms, including modal forms. */
+  .select-trigger {
+    max-width: 100%;
+    @apply inline-flex items-center justify-between gap-3 rounded-xl border-slate-700/70
+           bg-slate-900 text-slate-100 shadow-sm hover:border-brand-400/50
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    background-image: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(255,255,255,0.02));
+    transition: border-color 150ms, box-shadow 150ms, background-color 150ms;
+  }
+
+  .select-trigger[data-state="open"] {
+    @apply border-brand-400/60 ring-2 ring-brand-500/20;
+  }
+
+  .select-chevron {
+    @apply text-slate-400 transition-transform duration-200;
+  }
+
+  .select-trigger[data-state="open"] .select-chevron {
+    @apply rotate-180 text-brand-300;
+  }
+
+  .select-content {
+    @apply z-[100] overflow-hidden rounded-xl border border-slate-600/60 bg-slate-900 text-slate-100;
+    min-width: min(var(--radix-select-trigger-width), calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: var(--radix-select-content-available-height);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 0 0 1px rgba(99,102,241,0.08);
+    transform-origin: var(--radix-select-content-transform-origin);
+  }
+
+  .select-content[data-state="open"] { animation: selectIn 160ms ease-out; }
+  .select-content[data-state="closed"] { animation: selectOut 100ms ease-in; }
+
+  .select-viewport {
+    @apply p-1.5;
+    max-height: min(18rem, calc(var(--radix-select-content-available-height) - 3rem));
+  }
+
+  .select-item {
+    @apply relative flex cursor-default select-none items-center rounded-lg py-2.5 pl-3 pr-9
+           text-sm text-slate-300 outline-none transition-colors duration-100;
+    overflow-wrap: anywhere;
+  }
+
+  .select-item[data-state="checked"] { @apply bg-brand-500/10 text-brand-200; }
+  .select-item[data-highlighted] { @apply bg-brand-500/20 text-white; }
+  .select-item[data-disabled] { @apply pointer-events-none opacity-40; }
+  .select-check { @apply absolute right-3 flex items-center text-brand-300; }
+  .select-group-label { @apply px-3 pb-1.5 pt-3 text-xs font-semibold uppercase tracking-wide text-slate-500; }
+  .select-scroll-button { @apply flex h-6 items-center justify-center bg-slate-900 text-slate-400; }
+
   /* Shared calendar interactions match the dashboard's existing buttons. */
   .calendar-day {
     @apply transition-all duration-150 hover:border-brand-500/40
@@ -200,4 +252,19 @@
   .text-gradient {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-400 to-violet-400;
   }
+}
+
+@keyframes selectIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes selectOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .select-content { animation: none !important; }
+  .select-trigger, .select-chevron, .select-item { transition: none; }
 }

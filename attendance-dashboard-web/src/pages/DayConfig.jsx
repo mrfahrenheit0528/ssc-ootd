@@ -1,3 +1,4 @@
+import Select from '../components/Select'
 import { useState, useEffect, useRef } from 'react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, parseISO } from 'date-fns'
 import { Save, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react'
@@ -28,7 +29,7 @@ function DayEditor({ day, context, semesterId, officers, onClose, onSaved }) {
     <div className="card bg-slate-900 p-6 w-full max-w-lg max-h-[90vh] overflow-auto space-y-4 animate-slide-up">
       <div className="flex justify-between"><h2 id="calendar-editor-title" className="font-semibold">{format(parseISO(day), 'MMMM d, yyyy')}</h2><button disabled={saving} onClick={onClose} aria-label="Close day editor"><X /></button></div>
       <label className="label">Calendar day type</label>
-      <select className="input" value={type} onChange={e => setType(e.target.value)}>{Object.entries(DAY_TYPE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
+      <Select aria-label="Calendar day type" className="input" disabled={saving} value={type} onChange={e => setType(e.target.value)}>{Object.entries(DAY_TYPE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</Select>
       {type === 'regular' && <p className="text-xs text-slate-400">Required officers follow the semester's weekly assignments unless you choose a different list below.</p>}
       <label className="label">Note</label><input className="input" maxLength={1000} value={note} onChange={e => setNote(e.target.value)} />
       {type === 'regular' ? (
@@ -100,7 +101,7 @@ export default function DayConfig() {
   return <div className="space-y-6 max-w-5xl animate-slide-up">
     <h1 className="text-2xl font-bold flex gap-3"><Settings />Day Configuration</h1>
     <p className="text-sm text-slate-400">Set the semester's weekly assignments, then use the calendar to mark Regular, No Classes, or Optional dates.</p>
-    <label className="label">Semester</label><select className="input max-w-lg" disabled={loading || saving} value={semesterId} onChange={e => changeSemester(e.target.value)}><option value="">Select a semester</option>{semesters.map(s => <option key={s.id} value={s.id}>{s.name}{s.status === 'ended' ? ' (Archived - read-only)' : ''}</option>)}</select>
+    <label className="label">Semester</label><Select aria-label="Schedule semester" className="input max-w-lg" disabled={loading || saving} value={semesterId} onChange={e => changeSemester(e.target.value)}><option value="">Select a semester</option>{semesters.map(s => <option key={s.id} value={s.id}>{s.name}{s.status === 'ended' ? ' (Archived - read-only)' : ''}</option>)}</Select>
     {!semesters.length && <p>Create a semester on the Semesters page first.</p>}
     {error && <div role="alert" className="card p-4 text-red-300">Could not load the schedule: {error}<button className="btn-secondary ml-3" onClick={load}>Retry</button></div>}
     {loading && <p className="text-slate-400">Loading semester configuration...</p>}
@@ -111,7 +112,7 @@ export default function DayConfig() {
         {WEEKDAYS.map((label,day) => {
           const entry = schedule[day] ?? emptyWeek()[day]
           return <div key={day} className="border border-white/10 rounded-xl p-3 space-y-3">
-            <div className="flex flex-wrap gap-3 items-center"><span className="font-medium w-28">{label}</span><select aria-label={`${label} schedule`} className="input w-44" disabled={readOnly || saving} value={entry.type} onChange={e => updateDay(day,{type:e.target.value,required_uids:e.target.value === 'unscheduled' ? [] : entry.required_uids})}><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option></select></div>
+            <div className="flex flex-wrap gap-3 items-center"><span className="font-medium w-28">{label}</span><Select aria-label={`${label} schedule`} className="input w-44" disabled={readOnly || saving} value={entry.type} onChange={e => updateDay(day,{type:e.target.value,required_uids:e.target.value === 'unscheduled' ? [] : entry.required_uids})}><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option></Select></div>
             {entry.type === 'scheduled' && <div className="grid sm:grid-cols-2 gap-2">{context.officers.filter(o=>o.active !== false || entry.required_uids.includes(o.card_uid)).map(o => <label className="flex gap-2 text-sm" key={o.card_uid}><input type="checkbox" disabled={readOnly || saving} checked={entry.required_uids.includes(o.card_uid)} onChange={() => updateDay(day,{required_uids:entry.required_uids.includes(o.card_uid) ? entry.required_uids.filter(uid => uid !== o.card_uid) : [...entry.required_uids,o.card_uid]})} />{o.first_name} {o.last_name}{o.active === false ? ' (Inactive)' : ''}</label>)}{!entry.required_uids.length && <p className="text-xs text-amber-300">Select at least one officer.</p>}</div>}
           </div>
         })}

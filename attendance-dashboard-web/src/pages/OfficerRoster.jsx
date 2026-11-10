@@ -7,6 +7,7 @@
 //  - Structured council positions: Executive (1 each), College Reps (2 each), Assistant Officers (multiple)
 //  - Historical roster: view archived officer snapshot from any past semester
 
+import Select from '../components/Select'
 import { useState, useEffect, useRef } from 'react'
 import { saveOfficer, setEnrollment, recoverAttendance, deleteRecord, watchRecords, watchRecord, uploadPhoto } from '../data'
 import { dateKey, isDayClosed } from '../utils/attendanceTime'
@@ -373,8 +374,10 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
                 </span>
               )}
             </div>
-            <select
+            <Select
               id="officer-position"
+              aria-label="Council position"
+              disabled={saving}
               className="input bg-slate-900 border-white/15"
               value={form.position}
               onChange={e => set('position', e.target.value)}
@@ -388,7 +391,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
                   ))}
                 </optgroup>
               ))}
-            </select>
+            </Select>
 
             {/* Warning if position limit is already reached */}
             {isOverLimit && (
@@ -570,8 +573,9 @@ export default function OfficerRoster() {
           {semesters.length > 0 && (
             <div className="flex items-center gap-2">
               <GraduationCap className="w-4 h-4 text-brand-400" />
-              <select
+              <Select
                 id="roster-semester-select"
+                aria-label="Roster semester"
                 className="input py-2 px-3 text-xs w-auto bg-slate-900 border-white/15"
                 value={selectedSemester}
                 onChange={e => setSelectedSemester(e.target.value)}
@@ -582,7 +586,7 @@ export default function OfficerRoster() {
                     {s.name} (Archived Snapshot)
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
 

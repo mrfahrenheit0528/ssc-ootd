@@ -3,6 +3,7 @@
 // Attendance sessions with paired clock-in/out times, date filters, search, and exports.
 // Admins also get: edit entry, delete entry, add manual entry.
 
+import Select from '../components/Select'
 import { useState, useEffect, useRef } from 'react'
 import { listRecords, deleteRecord, saveAttendance, recoverAttendance, Instant } from '../data'
 import { useAuth } from '../contexts/AuthContext'
@@ -85,14 +86,14 @@ function LogEditModal({ log, officers, onClose, onSave }) {
           <div>
             <label className="label">Officer</label>
             {officers.length > 0 ? (
-              <select className="input" value={officerUid} onChange={e => setOfficerUid(e.target.value)}>
+              <Select aria-label="Officer" className="input" disabled={saving} value={officerUid} onChange={e => setOfficerUid(e.target.value)}>
                 <option value="">— Select officer —</option>
                 {officers.map(o => (
                   <option key={o.card_uid} value={o.card_uid}>
                     {o.first_name} {o.last_name} ({o.card_uid})
                   </option>
                 ))}
-              </select>
+              </Select>
             ) : (
               <input className="input font-mono" placeholder="Card UID"
                 value={officerUid} onChange={e => setOfficerUid(e.target.value)} />
@@ -309,8 +310,9 @@ export default function LogHistory() {
             </div>
             <div>
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Semester Filter</p>
-              <select
+              <Select
                 id="semester-filter-select"
+                aria-label="History semester"
                 className="input py-1 px-2.5 text-xs w-auto min-w-48 mt-0.5 bg-slate-900 border-white/15 focus:ring-brand-500"
                 value={selectedSemester}
                 onChange={e => handleSemesterChange(e.target.value)}
@@ -321,7 +323,7 @@ export default function LogHistory() {
                     {s.name} {s.status === 'active' ? '(Current Active Term)' : '(Past / Archived)'}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
 

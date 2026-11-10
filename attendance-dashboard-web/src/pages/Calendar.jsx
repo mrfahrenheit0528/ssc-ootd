@@ -1,3 +1,4 @@
+import Select from '../components/Select'
 import { useEffect, useRef, useState } from 'react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, parseISO } from 'date-fns'
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react'
@@ -53,7 +54,7 @@ export default function Calendar() {
     <div className="flex gap-3 flex-wrap justify-between"><h1 className="text-2xl font-bold flex gap-3"><CalendarDays />Attendance Calendar</h1><div className="flex gap-2"><button className="btn-secondary" disabled={loading || !!error || !currentScope || !result?.days.length} onClick={() => exportReport('csv')}>CSV</button><button className="btn-primary" disabled={loading || !!error || !currentScope || !result?.days.length} onClick={() => exportReport('xlsx')}>Excel report</button></div></div>
     <p className="text-sm text-slate-400">Assigned attendance and volunteers are counted separately. Absences finalize at 9 PM (Asia/Manila). Admins manage day types in Day Config.</p>
     <div className="card p-4 flex flex-wrap items-center justify-between gap-4">
-      <select aria-label="Calendar semester" className="input max-w-sm" value={semesterId} onChange={e => {setSemesterId(e.target.value); const term=semesters.find(s=>s.id===e.target.value); if(term) setMonth(startOfMonth(parseISO(term.start_date)))}}><option value="">All semesters</option>{semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+      <Select aria-label="Calendar semester" className="input max-w-sm" value={semesterId} onChange={e => {setSemesterId(e.target.value); const term=semesters.find(s=>s.id===e.target.value); if(term) setMonth(startOfMonth(parseISO(term.start_date)))}}><option value="">All semesters</option>{semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
       <div className="flex gap-3 items-center"><button className="btn-secondary p-2" aria-label="Previous month" onClick={() => setMonth(m=>addMonths(m,-1))}><ChevronLeft /></button><span>{format(month,'MMMM yyyy')}</span><button className="btn-secondary p-2" aria-label="Next month" onClick={() => setMonth(m=>addMonths(m,1))}><ChevronRight /></button><button className="btn-secondary" onClick={()=>setRetry(v=>v+1)}>Refresh</button></div>
     </div>
     <div className="space-y-2"><DayTypeLegend /><ScheduleLegend /></div>
