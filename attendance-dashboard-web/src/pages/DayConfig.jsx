@@ -1,7 +1,8 @@
 import Select from '../components/Select'
+import Tabs from '../components/Tabs'
 import { useState, useEffect, useRef } from 'react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, parseISO } from 'date-fns'
-import { Save, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Save, Settings, ChevronLeft, ChevronRight, X, CalendarDays, CalendarRange } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { saveWeek, saveCalendarDay } from '../data'
 import { useSemester } from '../contexts/SemesterContext'
@@ -61,6 +62,7 @@ function DayEditor({ day, context, semesterId, officers, onClose, onSaved }) {
 export default function DayConfig() {
   const { semesters, activeSemester } = useSemester()
   const [semesterId, setSemesterId] = useState('')
+  const [activeTab, setActiveTab] = useState('weekly')
   const [context, setContext] = useState(null)
   const [schedule, setSchedule] = useState(emptyWeek)
   const [month, setMonth] = useState(() => startOfMonth(parseISO(dateKey())))
@@ -107,6 +109,8 @@ export default function DayConfig() {
     {loading && <p className="text-slate-400">Loading semester configuration...</p>}
     {context && term && context.selectedSemesterId === semesterId && !loading && !error && <>
       {readOnly && <p className="text-amber-300 text-sm">Archived semester. An admin must reactivate it before changing its schedule.</p>}
+      <Tabs label="Day configuration sections" value={activeTab} onValueChange={setActiveTab} tabs={[
+        { value:'weekly', label:'Weekly recurring assignments', icon:CalendarRange, badge:dirty ? 'Unsaved' : null, content:(
       <section className="card p-5 space-y-4"><h2 className="font-semibold">Weekly recurring assignments</h2>
         <p className="text-xs text-slate-400">Applies to {term?.name}. Scheduled days require the selected officers; Unscheduled days have no recurring duty. Revisions are retained automatically.</p>
         {WEEKDAYS.map((label,day) => {
@@ -118,6 +122,8 @@ export default function DayConfig() {
         })}
         <button className="btn-primary" disabled={readOnly || saving} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save semester schedule'}</button>
       </section>
+        ) },
+        { value:'calendar', label:'Calendar day types', icon:CalendarDays, content:(
       <section className="card p-4 space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Calendar day types</h2><div className="flex items-center gap-3"><button className="btn-secondary p-2" aria-label="Previous month" onClick={() => setMonth(m => subMonths(m,1))}><ChevronLeft /></button><span>{format(month,'MMMM yyyy')}</span><button className="btn-secondary p-2" aria-label="Next month" onClick={() => setMonth(m => addMonths(m,1))}><ChevronRight /></button></div></div>
         <p className="text-xs text-slate-400">Weekly edits appear here immediately for today and future dates. Earlier dates keep their saved assignments. Save weekly changes before editing an individual date.</p>
         {dirty && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-300 animate-fade-in">
@@ -132,6 +138,8 @@ export default function DayConfig() {
           return <button key={ds} data-day-type={outside ? undefined : cfg.type} disabled={outside || readOnly || saving} onClick={() => {if(dirty) {toast.error('Save weekly assignments before editing an individual date.');return} setSelectedDay(ds)}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} /></span><span className="block text-[10px] sm:text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="hidden sm:block text-xs text-brand-300">{cfg.required_uids.length} required</span>}</button>
         })}</div>
       </section>
+        ) },
+      ]} />
     </>}
     {selectedDay && context && <DayEditor key={selectedDay} day={selectedDay} context={context} semesterId={semesterId} officers={context.officers} onClose={() => setSelectedDay(null)} onSaved={load} />}
   </div>

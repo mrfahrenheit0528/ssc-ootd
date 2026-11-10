@@ -63,14 +63,14 @@ files on every reader PC before restarting those readers.
 ## 4. Choose a semester and assign the weekly officers
 
 1. Open **Semesters**. Create or activate the semester you intend to configure.
-2. Open **Day Config** and choose that semester.
+2. Open **Day Config** and choose that semester. Open the **Weekly recurring assignments** tab.
 3. For each weekday choose **Scheduled** or **Unscheduled**.
 4. For a Scheduled day, tick the officers required for that weekday.
 5. The calendar immediately previews type and officer changes for today and
    future dates. An amber message identifies unsaved changes. Earlier dates
    retain their saved assignments; No Classes, Optional, and custom date lists
    still take precedence.
-6. Click **Save semester schedule** in either card to apply the changes. Save
+6. Click **Save semester schedule** in either tab to apply the changes. Save
    weekly edits before opening an individual date so those edits are retained.
 
 There is no Effective From date. The schedule belongs to the selected semester.
@@ -87,7 +87,9 @@ historical reports.
 
 ## 5. Set day types on the calendar
 
-Scroll to **Calendar day types** in Day Config. Navigate to a month, then click
+Switch to the **Calendar day types** tab in Day Config. Weekly drafts and the
+calendar month are retained when switching tabs. An Unsaved badge marks weekly
+changes that still need saving. Navigate to a month, then click
 a date within the selected semester. Choose:
 
 | Day type | What it means |
