@@ -177,6 +177,11 @@ Keep calendar schedule markers in `ScheduleIndicator.jsx`: pushpin means Schedul
 and minus means Unscheduled. Show the shared legend, accessible labels, and title
 tooltips; keep full words in forms and reports.
 
+Calendar markers describe effective required duty for the date. Pass `dayType`
+to `ScheduleIndicator` in both calendars: No Classes and Optional always show
+Unscheduled (minus), even when a saved weekly list exists. The saved assignments
+remain available when the date returns to Regular, which can show Scheduled again.
+
 Calendar date-cell borders and background accents identify day types consistently:
 Regular is green, No Classes is red, and Optional is blue. Use the shared
 `DayTypeLegend` and `.calendar-day[data-day-type]` styles in both calendars.
