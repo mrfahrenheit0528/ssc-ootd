@@ -6,6 +6,8 @@ a cloud project or an existing application database for this test harness.
 Requires psycopg[binary]. Run: python scripts/test_database.py
 """
 import base64
+from concurrent.futures import ThreadPoolExecutor
+import threading
 import hashlib
 from datetime import datetime, timedelta, timezone
 import json
@@ -172,6 +174,71 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(rows[0][1], 'ended')
         self.assertEqual(rows[0][2][0]['first_name'], 'Ana')
         self.assertEqual(rows[1][1], 'active')
+
+    def test_second_active_semester_insert_is_rejected_by_database(self):
+        self.role(ADMIN)
+        self.conn.execute("INSERT INTO public.semesters(id,name,start_date,status) VALUES ('a','A','2026-01-01','active')")
+        with self.assertRaises(psycopg.errors.UniqueViolation) as violation, self.conn.transaction():
+            self.conn.execute("INSERT INTO public.semesters(id,name,start_date,status) VALUES ('b','B','2026-02-01','active')")
+        self.assertEqual(violation.exception.diag.constraint_name,'one_active_semester')
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.semesters WHERE status='active'").fetchone()[0],1)
+
+    def test_direct_update_cannot_activate_another_semester(self):
+        self.role(ADMIN)
+        self.conn.execute("INSERT INTO public.semesters(id,name,start_date,status) VALUES ('a','A','2026-01-01','active'),('b','B','2025-01-01','ended')")
+        with self.assertRaises(psycopg.errors.UniqueViolation), self.conn.transaction():
+            self.conn.execute("UPDATE public.semesters SET status='active' WHERE id='b'")
+        self.assertEqual(self.conn.execute("SELECT id FROM public.semesters WHERE status='active'").fetchone()[0],'a')
+
+    def test_concurrent_creates_allow_only_one_active_semester(self):
+        ids=[str(uuid4()),str(uuid4())]
+        barrier=threading.Barrier(2)
+        def create(term_id):
+            try:
+                with psycopg.connect(DSN) as conn:
+                    conn.execute("SET LOCAL statement_timeout='5s'")
+                    barrier.wait(timeout=3)
+                    conn.execute("INSERT INTO public.semesters(id,name,start_date,status) VALUES (%s,'Concurrent term','2026-01-01','active')",(term_id,))
+                return 'created'
+            except psycopg.errors.UniqueViolation:
+                return 'rejected'
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results=list(pool.map(create,ids))
+            self.assertCountEqual(results,['created','rejected'])
+            with psycopg.connect(DSN) as conn:
+                self.assertEqual(conn.execute("SELECT count(*) FROM public.semesters WHERE status='active'").fetchone()[0],1)
+        finally:
+            with psycopg.connect(DSN) as conn:
+                conn.execute('DELETE FROM public.semesters WHERE id=ANY(%s)',(ids,))
+
+    def test_concurrent_admin_activations_are_serialized(self):
+        ids=[str(uuid4()),str(uuid4())]
+        actor=str(uuid4())
+        barrier=threading.Barrier(2)
+        def activate(term_id):
+            with psycopg.connect(DSN) as conn:
+                conn.execute("SET LOCAL statement_timeout='5s'")
+                conn.execute("SELECT set_config('request.jwt.claim.sub',%s,true)",(actor,))
+                conn.execute('SET LOCAL ROLE authenticated')
+                barrier.wait(timeout=3)
+                conn.execute('SELECT public.activate_semester(%s)',(term_id,))
+        try:
+            with psycopg.connect(DSN) as conn:
+                conn.execute('INSERT INTO auth.users(id) VALUES (%s)',(actor,))
+                conn.execute("INSERT INTO public.user_roles VALUES (%s,'admin')",(actor,))
+                conn.cursor().executemany("INSERT INTO public.semesters(id,name,start_date,status) VALUES (%s,'Concurrent activation','2026-01-01','ended')",[(i,) for i in ids])
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                list(pool.map(activate,ids))
+            with psycopg.connect(DSN) as conn:
+                self.assertEqual(conn.execute("SELECT count(*) FROM public.semesters WHERE status='active'").fetchone()[0],1)
+                rows=conn.execute('SELECT status FROM public.semesters WHERE id=ANY(%s)',(ids,)).fetchall()
+                self.assertCountEqual([r[0] for r in rows],['active','ended'])
+        finally:
+            with psycopg.connect(DSN) as conn:
+                conn.execute('DELETE FROM public.semesters WHERE id=ANY(%s)',(ids,))
+                conn.execute('DELETE FROM public.user_roles WHERE user_id=%s',(actor,))
+                conn.execute('DELETE FROM auth.users WHERE id=%s',(actor,))
 
     def test_expired_enrollment_does_not_swallow_taps(self):
         self.conn.execute("INSERT INTO public.system_settings(id,data) VALUES ('enrollment_mode',%s)",

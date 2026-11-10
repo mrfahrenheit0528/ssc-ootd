@@ -8,8 +8,9 @@ import { useState, useEffect, useRef } from 'react'
 import { listRecords, deleteRecord, saveAttendance, recoverAttendance, Instant } from '../data'
 import { useAuth } from '../contexts/AuthContext'
 import { useSemester } from '../contexts/SemesterContext'
+import { useHistoryFilters } from '../hooks/useHistoryFilters'
 import { format } from 'date-fns'
-import { dateKey, dateBounds, addDateDays, timeInput } from '../utils/attendanceTime'
+import { dateKey, dateBounds, timeInput } from '../utils/attendanceTime'
 import toast from 'react-hot-toast'
 import {
   History, Search, Download, LogIn, LogOut, RefreshCw,
@@ -175,12 +176,9 @@ function SessionTimeCell({ log, kind, isAdmin, onEdit, onDelete }) {
 // ── Log History Page ──────────────────────────────────────────────────────────
 export default function LogHistory() {
   const { isAdmin }            = useAuth()
-  const { semesters }          = useSemester()
+  const { semesters, activeSemester, loading: semesterLoading, error: semesterError } = useSemester()
   const todayStr               = dateKey()
 
-  const [dateFrom,         setDateFrom]         = useState(todayStr)
-  const [dateTo,           setDateTo]           = useState(todayStr)
-  const [selectedSemester, setSelectedSemester] = useState('')
   const [search,           setSearch]           = useState('')
   const [logs,             setLogs]             = useState([])
   const [context, setContext] = useState(null)
@@ -195,6 +193,8 @@ export default function LogHistory() {
   const officers = (context?.officers ?? []).filter(o=>o.active !== false)
   const fetchRange = async (from, to, semesterId = '') => {
     if (!from || !to || from > to) return toast.error('Choose a valid date range.')
+    const semester = semesters.find(s => s.id === semesterId)
+    if (semesterId && (!semester || from < semester.start_date || (semester.end_date && to > semester.end_date))) return toast.error('Choose dates within the selected semester.')
     const current = ++generation.current
     setLoading(true); setError('')
     try {
@@ -208,22 +208,16 @@ export default function LogHistory() {
     } catch (e) { if (current === generation.current) setError('Could not load attendance: ' + e.message) }
     finally { if (current === generation.current) setLoading(false) }
   }
+  const filters = useHistoryFilters({ semesters, activeSemester, loading: semesterLoading, error: semesterError, load: fetchRange, today: todayStr })
+  const { from: dateFrom, to: dateTo, semesterId: selectedSemester } = filters
+  const selectedTerm = semesters.find(s => s.id === selectedSemester)
   const fetchLogs = () => fetchRange(dateFrom,dateTo,selectedSemester)
-  useEffect(() => { fetchRange(todayStr,todayStr); return () => { generation.current++ } }, [])
+  useEffect(() => () => { generation.current++ }, [])
   const applyPreset = days => {
-    const from = addDateDays(todayStr,-(days > 1 ? days-1 : days))
-    const to = days === 1 ? from : todayStr
-    setDateFrom(from); setDateTo(to); setSelectedSemester(''); fetchRange(from,to)
-  }
-  const handleSemesterChange = id => {
-    setSelectedSemester(id)
-    const sem = semesters.find(s => s.id === id)
-    if (!sem) return
-    const to = sem.end_date || (sem.start_date > todayStr ? sem.start_date : todayStr)
-    setDateFrom(sem.start_date); setDateTo(to); fetchRange(sem.start_date,to,id)
+    if (!filters.applyPreset(days)) toast.error('That date range falls outside the selected semester.')
   }
   const stale = !loadedScope || loadedScope.from !== dateFrom || loadedScope.to !== dateTo || loadedScope.semesterId !== selectedSemester
-  const exportReady = !loading && !error && !stale
+  const exportReady = !semesterLoading && !semesterError && !loading && !error && !stale
   const handleDelete = async (log) => {
     const reason = window.prompt('Why should this attendance entry be deleted? (At least 3 characters)')
     if (reason == null) return
@@ -315,9 +309,10 @@ export default function LogHistory() {
                 aria-label="History semester"
                 className="input py-1 px-2.5 text-xs w-auto min-w-48 mt-0.5 bg-slate-900 border-white/15 focus:ring-brand-500"
                 value={selectedSemester}
-                onChange={e => handleSemesterChange(e.target.value)}
+                disabled={semesterLoading || !!semesterError}
+                onChange={e => filters.chooseSemester(e.target.value)}
               >
-                <option value="">— Choose a Semester —</option>
+                <option value="">{semesterLoading ? 'Loading semesters...' : 'All semesters'}</option>
                 {semesters.map(s => (
                   <option key={s.id} value={s.id}>
                     {s.name} {s.status === 'active' ? '(Current Active Term)' : '(Past / Archived)'}
@@ -346,13 +341,13 @@ export default function LogHistory() {
         <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="label">From Date</label>
-            <input id="date-from" type="date" className="input w-40" value={dateFrom} max={dateTo}
-              onChange={e => { setDateFrom(e.target.value); setSelectedSemester('') }} />
+            <input id="date-from" type="date" className="input w-40" value={dateFrom} min={selectedTerm?.start_date} max={dateTo}
+              onChange={e => filters.setFrom(e.target.value)} />
           </div>
           <div>
             <label className="label">To Date</label>
-            <input id="date-to" type="date" className="input w-40" value={dateTo} min={dateFrom}
-              onChange={e => { setDateTo(e.target.value); setSelectedSemester('') }} />
+            <input id="date-to" type="date" className="input w-40" value={dateTo} min={dateFrom} max={selectedTerm?.end_date || undefined}
+              onChange={e => filters.setTo(e.target.value)} />
           </div>
           <div className="flex-1 min-w-40">
             <label className="label">Search Officer / UID</label>
@@ -362,7 +357,7 @@ export default function LogHistory() {
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
-          <button id="fetch-logs-btn" onClick={fetchLogs} disabled={loading} className="btn-primary h-9">
+          <button id="fetch-logs-btn" onClick={fetchLogs} disabled={loading || semesterLoading || !!semesterError} className="btn-primary h-9">
             {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             {loading ? 'Loading…' : 'Fetch Logs'}
           </button>

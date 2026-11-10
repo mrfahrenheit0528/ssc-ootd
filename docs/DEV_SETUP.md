@@ -68,6 +68,17 @@ The harness refuses any other database name or a database with existing tables.
 Use a fresh disposable instance for each bootstrap run. The `anon` and
 `authenticated` roles it creates are test fixtures, not production setup.
 
+The single-active-semester invariant is enforced by the partial unique index
+`one_active_semester`, not by dropdown visibility. Activation RPCs serialize
+switches with an advisory transaction lock. Integration tests check direct
+insert/update rejection and concurrent create/activation requests in the scratch
+database. Do not weaken the index to accommodate a UI race.
+
+Log History's `useHistoryFilters` waits for semester metadata, defaults to the
+active term, and preserves deliberate archived/date choices across ordinary
+metadata refreshes. Its DOM hook tests also check active-term changes and presets
+at semester boundaries. Attendance requests retain generation guards.
+
 ## Cloud tables and credentials
 
 | Table | Contents |

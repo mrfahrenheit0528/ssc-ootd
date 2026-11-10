@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --import tsx --test src/utils/*.test.js src/data.test.js src/components/*.test.jsx"
+    "test": "node --import tsx --test src/utils/*.test.js src/data.test.js src/components/*.test.jsx src/hooks/*.test.jsx"
   },
   "dependencies": {
     "@radix-ui/react-select": "2.4.1",

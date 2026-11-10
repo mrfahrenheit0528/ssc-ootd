@@ -118,6 +118,14 @@ does not delete those settings.
 
 - **Calendar:** a volunteer does not fill an assigned officer's slot. Click a
   date to see assigned, pending, absent, and voluntary records separately.
+- **Log History filters:** opening the page selects the current active semester
+  and loads its date range. Date edits and quick ranges retain that semester;
+  presets are limited to its dates. Select an archived semester or All semesters
+  explicitly when needed. Changing the active term updates the default filter.
+- **One active semester:** the original database migration already creates the
+  `one_active_semester` unique index. Starting a second active term is rejected;
+  reactivating an archived term archives the current one in the same transaction.
+  No additional SQL migration is needed for these filter changes.
 - **Log History:** a visit still has one row with clock-in and clock-out. Enter
   a reason when adding, changing, or deleting an event. Seconds are preserved.
 - **Reports:** fetch the selected range before exporting. CSV and Excel include
