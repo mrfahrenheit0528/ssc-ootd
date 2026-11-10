@@ -2,6 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Analytics uses the same entrance language as the dashboard, with staggered
+   cards, growing chart bars, and a gently revealed fulfillment ring. */
+.analytics-enter, .analytics-metric {
+  animation: analyticsEnter 550ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.analytics-metric {
+  transition: transform 200ms, border-color 200ms, box-shadow 200ms;
+  background-image: radial-gradient(ellipse at top right, color-mix(in srgb, var(--accent) 9%, transparent), transparent 75%);
+}
+.analytics-metric:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: 0 12px 35px -24px var(--accent);
+}
+.analytics-icon { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.analytics-glow {
+  position: absolute; width: 22rem; height: 22rem; right: -6rem; top: -12rem;
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(99,102,241,0.22), transparent 70%);
+  animation: analyticsGlow 6s ease-in-out infinite alternate;
+}
+.analytics-bar { transform-origin: bottom; animation: analyticsBar 700ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.analytics-bar-x { transform-origin: left; animation: analyticsBarX 800ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.analytics-ring { animation: analyticsRing 1100ms ease-out both; }
+.analytics-skeleton { animation: pulse 1.8s ease-in-out infinite; }
+@keyframes analyticsEnter { from { opacity: 0; translate: 0 16px; } to { opacity: 1; translate: 0 0; } }
+@keyframes analyticsBar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes analyticsBarX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes analyticsRing { from { stroke-dashoffset: 100; } to { stroke-dashoffset: var(--ring-offset); } }
+@keyframes analyticsGlow { to { transform: translate(-35px, 28px) scale(1.15); } }
+@media (prefers-reduced-motion: reduce) {
+  .analytics-page *, .analytics-page *::before, .analytics-page *::after {
+    animation: none !important; transition: none !important; scroll-behavior: auto !important;
+  }
+  .analytics-metric:hover { transform: none; }
+}
+
 @layer base {
   * {
     box-sizing: border-box;

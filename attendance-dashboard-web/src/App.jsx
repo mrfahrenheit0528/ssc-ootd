@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Monitor, Users, History, Zap, CalendarDays, Settings, LogOut, ShieldCheck, GraduationCap, Menu, X } from 'lucide-react'
+import { Monitor, Users, History, Zap, CalendarDays, Settings, LogOut, ShieldCheck, GraduationCap, Menu, X, BarChart3 } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { SemesterProvider, useSemester } from './contexts/SemesterContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -12,6 +12,8 @@ import DayConfig      from './pages/DayConfig'
 import SemesterManager from './pages/SemesterManager'
 import Login          from './pages/Login'
 
+const Analytics = lazy(() => import('./pages/Analytics'))
+
 const PUBLIC_NAV = [
   { to: '/',         label: 'Live Kiosk',     icon: Monitor      },
   { to: '/roster',   label: 'Officer Roster',  icon: Users        },
@@ -20,6 +22,7 @@ const PUBLIC_NAV = [
 ]
 
 const ADMIN_NAV = [
+  { to: '/analytics',   label: 'Analytics',  icon: BarChart3       },
   { to: '/day-config',  label: 'Day Config',  icon: Settings       },
   { to: '/semesters',   label: 'Semesters',   icon: GraduationCap  },
 ]
@@ -136,6 +139,9 @@ function AppShell() {
           <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>}      />
 
           {/* Admin-only routes */}
+          <Route path="/analytics" element={
+            <ProtectedRoute adminOnly><Suspense fallback={<p role="status" className="text-sm text-slate-400 animate-pulse">Loading analytics…</p>}><Analytics /></Suspense></ProtectedRoute>
+          } />
           <Route path="/day-config" element={
             <ProtectedRoute adminOnly><DayConfig /></ProtectedRoute>
           } />
