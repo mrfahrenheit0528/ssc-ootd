@@ -29,6 +29,7 @@ credentials.*.json
 exports/
 attendance_*.csv
 attendance_report_*.xlsx
+development/
 
 # ── Node.js / Web Dashboard ──────────────────────────────────
 node_modules/
