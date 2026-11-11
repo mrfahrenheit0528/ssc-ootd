@@ -355,6 +355,96 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(any(e['manually_edited'] and e['type']=='CLOCK_OUT' for e in result['events']))
 
 
+    def csv_import(self, rows=None, reason='Transcribed paper logbook'):
+        self.conn.execute("INSERT INTO public.semesters(id,name,start_date,end_date,status) VALUES ('csv-term','Historical term','2020-01-01','2020-12-31','ended') ON CONFLICT(id) DO NOTHING")
+        if rows is None:
+            rows=[{'date':'2020-09-01','card_uid':'AAAA1111','time_in':'09:00:00','time_out':'17:00:00','source':'sample page row 1','signature':'see source','notes':'Reviewed'}]
+        return self.conn.execute('SELECT public.import_attendance_csv(%s,%s,%s)',('csv-term',Jsonb(rows),reason)).fetchone()[0]
+
+    def test_csv_import_requires_admin(self):
+        self.role(OFFICER)
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+            self.conn.execute("SELECT public.import_attendance_csv('none','[]','Paper logbook')")
+
+    def test_csv_import_is_audited_and_retry_does_not_duplicate(self):
+        self.role(ADMIN)
+        result=self.csv_import()
+        self.assertEqual(result,{'imported_sessions':1,'skipped_sessions':0,'inserted_events':2})
+        self.assertEqual(self.csv_import()['skipped_sessions'],1)
+        audits=self.conn.execute("SELECT operation,reason,after_data->'csv_import'->>'source' FROM public.attendance_audit ORDER BY id").fetchall()
+        self.assertEqual(audits,[('import','Transcribed paper logbook','sample page row 1')]*2)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs WHERE manually_edited AND device_id IS NULL').fetchone()[0],2)
+
+    def test_csv_import_rolls_back_every_row_on_error(self):
+        self.role(ADMIN)
+        self.conn.execute("INSERT INTO public.semesters(id,name,start_date,end_date,status) VALUES ('csv-term','Historical','2020-01-01','2020-12-31','ended')")
+        valid={'date':'2020-09-01','card_uid':'AAAA1111','time_in':'09:00:00','time_out':'17:00:00'}
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():
+            self.csv_import([valid,{**valid,'date':'2020-09-02','card_uid':'UNKNOWN'}])
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0],0)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_audit').fetchone()[0],0)
+
+    def test_csv_import_rejects_incomplete_reversed_future_and_outside_dates(self):
+        self.role(ADMIN)
+        self.conn.execute("INSERT INTO public.semesters(id,name,start_date,end_date,status) VALUES ('csv-term','Historical','2020-01-01','2020-12-31','ended')")
+        valid={'date':'2020-09-01','card_uid':'AAAA1111','time_in':'09:00:00','time_out':'17:00:00'}
+        for patch in [{'time_out':''},{'time_out':'08:00:00'},{'date':'2019-01-01'},{'date':'2099-01-01'},{'time_in':'09:00'}]:
+            with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction(): self.csv_import([{**valid,**patch}])
+        self.conn.execute("UPDATE public.semesters SET end_date=NULL WHERE id='csv-term'")
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction(): self.csv_import([{**valid,'date':'2099-01-01'}])
+
+    def test_csv_import_preserves_corrected_and_deleted_event_ids(self):
+        self.role(ADMIN)
+        self.csv_import()
+        event=self.conn.execute("SELECT id FROM public.attendance_logs WHERE type='CLOCK_IN'").fetchone()[0]
+        self.conn.execute("SELECT public.correct_attendance(%s,'AAAA1111','CLOCK_IN','2020-09-01T09:05:00+08:00',false,'Correct paper time')",(event,))
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction(): self.csv_import()
+        self.conn.execute("SELECT public.correct_attendance(%s,'AAAA1111','CLOCK_IN','2020-09-01T09:00:00+08:00',false,'Restore reviewed time')",(event,))
+        self.conn.execute("SELECT public.delete_attendance(%s,'Mistaken source date')",(event,))
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction(): self.csv_import()
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0],2)
+
+    def test_csv_import_rejects_overlapping_sessions(self):
+        self.role(ADMIN)
+        self.csv_import()
+        valid={'date':'2020-09-01','card_uid':'AAAA1111','time_in':'10:00:00','time_out':'11:00:00'}
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction(): self.csv_import([valid])
+        valid['time_in']='09:00:00';valid['time_out']='18:00:00'
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction(): self.csv_import([valid])
+
+    def test_concurrent_csv_retries_create_one_audited_pair(self):
+        actor=str(uuid4());term_id=str(uuid4());uid='CSV'+uuid4().hex.upper()
+        barrier=threading.Barrier(2)
+        rows=[{'date':'2020-09-01','card_uid':uid,'time_in':'09:00:00','time_out':'17:00:00'}]
+        def run(_):
+            with psycopg.connect(DSN) as conn:
+                conn.execute("SET LOCAL statement_timeout='5s'")
+                conn.execute("SELECT set_config('request.jwt.claim.sub',%s,true)",(actor,))
+                conn.execute('SET LOCAL ROLE authenticated')
+                barrier.wait(timeout=3)
+                return conn.execute('SELECT public.import_attendance_csv(%s,%s,%s)',(term_id,Jsonb(rows),'Concurrent CSV retry')).fetchone()[0]
+        try:
+            with psycopg.connect(DSN) as conn:
+                conn.execute('INSERT INTO auth.users(id) VALUES (%s)',(actor,))
+                conn.execute("INSERT INTO public.user_roles VALUES (%s,'admin')",(actor,))
+                conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES (%s,'Sample','Officer','Member')",(uid,))
+                conn.execute("INSERT INTO public.semesters(id,name,start_date,end_date,status) VALUES (%s,'CSV concurrency','2020-01-01','2020-12-31','ended')",(term_id,))
+            with ThreadPoolExecutor(max_workers=2) as pool: results=list(pool.map(run,[1,2]))
+            self.assertCountEqual([r['imported_sessions'] for r in results],[1,0])
+            self.assertEqual(sum(r['skipped_sessions'] for r in results),1)
+            with psycopg.connect(DSN) as conn:
+                self.assertEqual(conn.execute('SELECT count(*) FROM public.attendance_logs WHERE card_uid=%s',(uid,)).fetchone()[0],2)
+                self.assertEqual(conn.execute('SELECT count(*) FROM public.attendance_audit WHERE actor_id=%s',(actor,)).fetchone()[0],2)
+        finally:
+            with psycopg.connect(DSN) as conn:
+                conn.execute('DELETE FROM public.attendance_audit WHERE actor_id=%s',(actor,))
+                conn.execute('DELETE FROM public.attendance_logs WHERE card_uid=%s',(uid,))
+                conn.execute('DELETE FROM public.officers WHERE card_uid=%s',(uid,))
+                conn.execute('DELETE FROM public.semesters WHERE id=%s',(term_id,))
+                conn.execute('DELETE FROM public.user_roles WHERE user_id=%s',(actor,))
+                conn.execute('DELETE FROM auth.users WHERE id=%s',(actor,))
+
+
 if __name__ == '__main__':
     if DSN: initialize()
     unittest.main()

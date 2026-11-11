@@ -103,6 +103,9 @@ export function createDataAccess(getClient = client) {
     return check(await getClient().rpc('correct_attendance', { p_id: id ?? null, p_uid: payload.card_uid,
       p_type: payload.type, p_timestamp: wire(payload.timestamp), p_auto: payload.is_auto_closed, p_reason: reason }))
   }
+  async function importAttendanceCSV(semesterId, rows, reason) {
+    return check(await getClient().rpc('import_attendance_csv', { p_semester_id: semesterId, p_rows: wire(rows), p_reason: reason }))
+  }
   async function saveWeek(semesterId, schedule) {
     return check(await getClient().rpc('save_semester_schedule', { p_semester_id: semesterId, p_schedule: wire(schedule) }))
   }
@@ -141,7 +144,7 @@ export function createDataAccess(getClient = client) {
   }
   const watchRecords = (table, options, onData, onError) => watch(table, () => listRecords(table, options), onData, onError)
   const watchRecord = (table, id, onData, onError) => watch(table, () => getRecord(table, id), onData, onError)
-  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveAttendance, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
+  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
 }
 
-export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveAttendance, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()
+export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()

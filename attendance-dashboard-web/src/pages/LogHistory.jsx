@@ -4,8 +4,9 @@
 // Admins also get: edit entry, delete entry, add manual entry.
 
 import Select from '../components/Select'
+import AttendanceImportModal from '../components/AttendanceImportModal'
 import { useState, useEffect, useRef } from 'react'
-import { listRecords, deleteRecord, saveAttendance, recoverAttendance, Instant } from '../data'
+import { listRecords, deleteRecord, saveAttendance, importAttendanceCSV, recoverAttendance, Instant } from '../data'
 import { useAuth } from '../contexts/AuthContext'
 import { useSemester } from '../contexts/SemesterContext'
 import { useHistoryFilters } from '../hooks/useHistoryFilters'
@@ -14,13 +15,16 @@ import { dateKey, dateBounds, timeInput } from '../utils/attendanceTime'
 import toast from 'react-hot-toast'
 import {
   History, Search, Download, LogIn, LogOut, RefreshCw,
-  Plus, Pencil, Trash2, X, Save, GraduationCap, FileSpreadsheet,
+  Plus, Pencil, Trash2, X, Save, GraduationCap, FileSpreadsheet, Upload,
 } from 'lucide-react'
 import {
   resolveDay, fetchAttendanceContext, formatTime, formatDuration,
   exportXLSXReport, exportCSVReport,
 } from '../utils/reportExport'
 import { buildAttendanceSessions, filterAttendanceSessions } from '../utils/attendanceSessions'
+
+const loadImportOfficers = () => listRecords('officers', { includeInactive: true })
+const loadImportExisting = bounds => listRecords('attendance_logs', { ...bounds, orderBy: 'timestamp' })
 
 // ── Quick presets ─────────────────────────────────────────────────────────────
 const PRESETS = [
@@ -187,6 +191,7 @@ export default function LogHistory() {
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
   const [modal, setModal] = useState(null)
+  const [importOpen, setImportOpen] = useState(false)
   const generation = useRef(0)
   const fetched = Boolean(loadedScope)
   const officerMap = context?.officerMap ?? {}
@@ -262,6 +267,11 @@ export default function LogHistory() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && (
+            <button id="import-csv-btn" onClick={() => setImportOpen(true)} className="btn-secondary" disabled={semesterLoading || !!semesterError}>
+              <Upload className="w-4 h-4" /> Import CSV
+            </button>
+          )}
           {isAdmin && (
             <button id="add-log-btn" onClick={() => setModal('add')} className="btn-secondary">
               <Plus className="w-4 h-4" /> Add Entry
@@ -447,6 +457,9 @@ export default function LogHistory() {
         )}
       </div>
 
+      {isAdmin && importOpen && <AttendanceImportModal semesters={semesters} initialSemesterId={selectedSemester || activeSemester?.id || ''}
+        loadOfficers={loadImportOfficers} loadExisting={loadImportExisting} importRows={importAttendanceCSV}
+        onClose={() => setImportOpen(false)} onImported={fetchLogs} />}
       {/* Admin log edit/add modal */}
       {modal && (
         <LogEditModal

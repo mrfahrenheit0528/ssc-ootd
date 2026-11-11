@@ -113,6 +113,15 @@ For an existing working project, follow [DASHBOARD_UPGRADE.md](DASHBOARD_UPGRADE
 instead of repeating the initial setup. Both migrations are required by the
 current dashboard and reader.
 
+## 2B. Enable CSV imports for paper attendance
+
+After Step 2A, run
+[202611120001_attendance_csv_import.sql](../supabase/migrations/202611120001_attendance_csv_import.sql)
+once in a new Supabase SQL Editor query. This adds the admin-only audited batch
+import function. Follow [ATTENDANCE_IMPORT.md](ATTENDANCE_IMPORT.md) to review
+and import historical logbook CSVs. Existing projects only need this new file
+if the two earlier migrations already completed.
+
 ## 3. Set up website sign-in accounts
 
 ### 3A. Turn off public signups

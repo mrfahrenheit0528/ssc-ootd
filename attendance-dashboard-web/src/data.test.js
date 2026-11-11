@@ -105,3 +105,15 @@ test('unchanged correction timestamps preserve PostgreSQL microseconds',async()=
   })
   await repo.saveAttendance('event-id',{card_uid:'A',type:'CLOCK_OUT',timestamp,is_auto_closed:false},'Fix action only')
 })
+
+test('CSV import uses one audited server batch and preserves a failed response', async () => {
+  const rows = [{ date: '2020-09-01', card_uid: 'AAAA1111', time_in: '09:00:00', time_out: '17:00:00' }]
+  const repo = repository((url, options) => {
+    assert.equal(url.pathname, '/rest/v1/rpc/import_attendance_csv')
+    assert.deepEqual(JSON.parse(options.body), { p_semester_id: 'term', p_rows: rows, p_reason: 'Paper logbook' })
+    return json({ imported_sessions: 1, skipped_sessions: 0, inserted_events: 2 })
+  })
+  assert.equal((await repo.importAttendanceCSV('term', rows, 'Paper logbook')).inserted_events, 2)
+  const failing = repository(() => json({ code: 'P0001', message: 'Row 2: overlaps existing attendance' }, 400))
+  await assert.rejects(failing.importAttendanceCSV('term', rows, 'Paper logbook'), error => error.code === 'P0001' && error.message.includes('overlaps existing'))
+})
