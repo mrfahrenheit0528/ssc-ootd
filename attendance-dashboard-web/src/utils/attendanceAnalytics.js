@@ -1,9 +1,10 @@
 import { analyzeAttendanceData, resolveDay } from './attendance.js'
 import { isDayClosed, toDate, weekday } from './attendanceTime.js'
+import { nfcUid } from './officerIdentity.js'
 
 const rate = (present, required) => required ? Math.round(present / required * 100) : null
 const newOfficer = (uid, profile = {}) => ({
-  uid, name: [profile.first_name, profile.last_name].filter(Boolean).join(' ') || uid,
+  uid, nfcUid:nfcUid(profile,uid), name: [profile.first_name, profile.last_name].filter(Boolean).join(' ') || uid,
   position: profile.position || 'Officer', assignedDays: 0, attendedAssignedDays: 0,
   finalizedAssigned: 0, finalizedPresent: 0, absentDays: 0, pendingDays: 0,
   voluntaryDays: 0, visits: 0, seconds: 0, incomplete: 0, openVisits: 0, orphanOuts: 0, autoClosed: 0,
@@ -32,6 +33,7 @@ export function buildAttendanceAnalytics({ logs = [], context = {}, now = new Da
     for (const row of day.rows) {
       const officer = ensure(row.card_uid)
       officer.name = row.officer_name
+      officer.nfcUid = row.nfc_uid
       officer.position = row.position === '—' ? officer.position : row.position
       if (!byOfficer.has(row.card_uid)) byOfficer.set(row.card_uid, { assigned: false, attended: false })
       const slot = byOfficer.get(row.card_uid)

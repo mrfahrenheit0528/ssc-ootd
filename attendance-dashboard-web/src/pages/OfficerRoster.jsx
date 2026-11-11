@@ -8,8 +8,11 @@
 //  - Historical roster: view archived officer snapshot from any past semester
 
 import Select from '../components/Select'
+import OfficerNameCombobox from '../components/OfficerNameCombobox'
+import PendingCards from '../components/PendingCards'
+import { nfcUid } from '../utils/officerIdentity'
 import { useState, useEffect, useRef } from 'react'
-import { saveOfficer, setEnrollment, recoverAttendance, deleteRecord, watchRecords, watchRecord, uploadPhoto } from '../data'
+import { saveOfficerProfile, setEnrollment, recoverAttendance, deleteRecord, watchRecords, watchRecord, uploadPhoto } from '../data'
 import { dateKey, isDayClosed } from '../utils/attendanceTime'
 import { useAuth } from '../contexts/AuthContext'
 import { useSemester } from '../contexts/SemesterContext'
@@ -71,7 +74,7 @@ export const ALL_POSITIONS = POSITION_GROUPS.flatMap(g => g.positions)
 
 const EMPTY_FORM = {
   card_uid: '', first_name: '', last_name: '',
-  position: 'President and Student Trustee',
+  position: 'Officer',
   status: 'OFF_DUTY', photo_url: '',
 }
 
@@ -120,12 +123,13 @@ function compressImage(file) {
 // ── Officer Enrol / Edit Modal ────────────────────────────────────────────────
 function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
   const initialForm = {
-    card_uid:   officer?.card_uid || '',
+    card_uid:   nfcUid(officer) || officer?.pending_card_uid || '',
     first_name: officer?.first_name || '',
     last_name:  officer?.last_name || '',
-    position:   officer?.position || ALL_POSITIONS[0],
+    position:   officer?.position || 'Officer',
     status:     officer?.status || 'OFF_DUTY',
     photo_url:  officer?.photo_url || '',
+    photo_id: officer?.photo_id || null,
   }
 
   const [form,         setForm]         = useState(initialForm)
@@ -133,17 +137,25 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
   const [photoFile,    setPhotoFile]    = useState(null)
   const [photoPreview, setPhotoPreview] = useState(officer?.photo_url || null)
   const [lastAutoTap,  setLastAutoTap]  = useState(null)
-  const isEdit       = Boolean(officer)
+  const [selectedKey,setSelectedKey] = useState(null)
+  const [identityQuery,setIdentityQuery] = useState(`${initialForm.first_name} ${initialForm.last_name}`.trim())
+  const targetKey = officer?.card_uid || selectedKey
+  const isEdit = Boolean(targetKey)
+  const linkedCard = nfcUid(officer)
   const fileInputRef = useRef(null)
   const enrollmentOwner = useRef(crypto.randomUUID())
   const [enrolling,setEnrolling] = useState(false)
   const [leaseError,setLeaseError] = useState('')
   const [leaseRetry,setLeaseRetry] = useState(0)
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }))
+    if (k === 'first_name') setIdentityQuery(`${v} ${form.last_name}`.trim())
+    if (k === 'last_name') setIdentityQuery(`${form.first_name} ${v}`.trim())
+  }
 
   useEffect(() => {
-    if(isEdit) return
+    if(linkedCard) return
     let stopped = false
     const owner = crypto.randomUUID()
     enrollmentOwner.current = owner
@@ -158,15 +170,15 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
     renew()
     const timer = setInterval(renew,20000)
     return () => {stopped=true;clearInterval(timer);setEnrollment(owner,false).catch(()=>{})}
-  },[isEdit,leaseRetry])
+  },[linkedCard,leaseRetry])
   useEffect(() => {
-    if(isEdit || !enrolling) return
+    if(linkedCard || !enrolling) return
     return watchRecord('system_settings','live_scanner',data => {
       if(!data?.latest_uid || data.owner !== enrollmentOwner.current) return
       const uid=data.latest_uid.toUpperCase().trim()
       setForm(f=>({...f,card_uid:uid}));setLastAutoTap(uid)
     },e=>setLeaseError('Scanner connection interrupted: '+e.message))
-  },[isEdit,enrolling])
+  },[linkedCard,enrolling])
 
   const handlePhotoChange = async (e) => {
     const file = e.target.files?.[0]
@@ -195,7 +207,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
 
   // ── Check position occupancy ──────────────────────────────────────────────
   const selectedPos = form.position || ALL_POSITIONS[0]
-  const otherOfficers = existingOfficers.filter(o => o.active !== false && o.card_uid !== form.card_uid)
+  const otherOfficers = existingOfficers.filter(o => o.active !== false && o.card_uid !== targetKey)
   const currentOccupants = otherOfficers.filter(o => o.position === selectedPos)
 
   // Find limit for current position
@@ -217,20 +229,19 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
     const lastName  = form.last_name ? form.last_name.trim() : ''
     const position  = form.position || ALL_POSITIONS[0]
 
-    if (!uid) return toast.error('Card UID is required.')
     if (!firstName || !lastName) return toast.error('First and last name are required.')
 
-    if (!isEdit && existingOfficers.some(o=>o.card_uid===uid)) return toast.error('Card already enrolled. Edit or restore its existing profile.')
+    if (uid && existingOfficers.some(o=>nfcUid(o)===uid && o.card_uid!==targetKey)) return toast.error('Card already linked. Edit or restore its existing officer profile.')
     setSaving(true)
     try {
-      let photoId = form.photo_url ? (officer?.photo_id ?? null) : null
+      let photoId = form.photo_url ? form.photo_id : null
       if (photoFile) photoId = await uploadPhoto(photoFile)
-      await saveOfficer(uid, {
+      await saveOfficerProfile(targetKey, uid, {
         first_name: firstName, last_name: lastName, position,
         photo_id: photoId,
       }, {create:!isEdit,reactivate:officer?.active === false})
 
-      toast.success(isEdit ? 'Officer updated!' : 'Officer enrolled!')
+      toast.success(isEdit ? 'Officer profile updated. Card history is linked.' : uid ? 'Officer and card saved.' : 'Officer profile saved without a card.')
       onSave()
     } catch (err) {
       console.error('Save error:', err)
@@ -246,7 +257,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-white text-lg">
-            {isEdit ? 'Edit Officer' : 'Enrol New Officer'}
+            {isEdit ? 'Edit or Link Officer' : 'Add or Link Officer'}
           </h2>
           <button id="close-modal-btn" disabled={saving} onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
             <X className="w-4 h-4 text-slate-400" />
@@ -323,8 +334,8 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
           {/* NFC Card UID */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="label mb-0">NFC Card UID</label>
-              {!isEdit && (
+              <label className="label mb-0" htmlFor="officer-card-uid">NFC Card UID (optional)</label>
+              {!linkedCard && (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                   {enrolling ? 'Tap card on reader to scan' : 'Scanner enrollment inactive'}
@@ -337,28 +348,40 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
               placeholder="e.g. A1B2C3D4 — or tap card on reader"
               value={form.card_uid}
               onChange={e => { set('card_uid', e.target.value); setLastAutoTap(null) }}
-              disabled={isEdit}
-              required
+              disabled={Boolean(linkedCard) || saving}
             />
-            {!isEdit && (
+            {!linkedCard && (
               <p className="text-xs mt-1">
                 {lastAutoTap
                   ? <span className="text-emerald-400 font-medium">✓ Auto-detected: {lastAutoTap}</span>
-                  : <span className="text-slate-500">💡 Keep daemon running and tap a card — UID fills automatically.</span>
+                  : <span className="text-slate-500">Optional: tap a card to link it, or save this profile without a card.</span>
                 }
               </p>
             )}
           </div>
 
           {/* Name */}
+          {!officer?.card_uid && <OfficerNameCombobox value={identityQuery} officers={existingOfficers} disabled={saving}
+            onChange={value => {
+              setIdentityQuery(value); setSelectedKey(null)
+              const parts=value.trim().split(/\s+/)
+              setForm(f=>({...f,first_name:parts.length>1 ? parts.slice(0,-1).join(' ') : value,last_name:parts.length>1 ? parts.at(-1) : '',photo_id:null,photo_url:''}))
+              setPhotoPreview(null);setPhotoFile(null)
+            }}
+            onSelect={profile=>{
+              setSelectedKey(profile.card_uid);setIdentityQuery(`${profile.first_name} ${profile.last_name}`)
+              setForm(f=>({...f,first_name:profile.first_name,last_name:profile.last_name,position:profile.position,photo_id:profile.photo_id,photo_url:profile.photo_url||''}))
+              setPhotoPreview(profile.photo_url||null);setPhotoFile(null)
+            }} />}
+          {selectedKey && <p className="text-xs text-emerald-300 rounded-lg bg-emerald-500/10 p-3">Linking an existing officer. Imported attendance and future scans will use the same profile.</p>}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">First Name</label>
+              <label className="label" htmlFor="officer-first-name">First Name</label>
               <input id="officer-first-name" className="input" placeholder="Juan"
                 value={form.first_name} onChange={e => set('first_name', e.target.value)} required />
             </div>
             <div>
-              <label className="label">Last Name</label>
+              <label className="label" htmlFor="officer-last-name">Last Name</label>
               <input id="officer-last-name" className="input" placeholder="dela Cruz"
                 value={form.last_name} onChange={e => set('last_name', e.target.value)} required />
             </div>
@@ -382,6 +405,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
               value={form.position}
               onChange={e => set('position', e.target.value)}
             >
+              {!ALL_POSITIONS.includes(form.position) && <option value={form.position}>{form.position}</option>}
               {POSITION_GROUPS.map(group => (
                 <optgroup key={group.group} label={group.group} className="bg-slate-900 text-slate-300 font-semibold">
                   {group.positions.map(p => (
@@ -411,7 +435,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
             <button type="submit" id="save-officer-btn" disabled={saving} className="btn-primary">
               {saving
                 ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving…</>
-                : <><Save className="w-4 h-4" />{isEdit ? 'Save Changes' : 'Enrol Officer'}</>
+                : <><Save className="w-4 h-4" />{isEdit ? 'Save Changes' : 'Save Officer'}</>
               }
             </button>
           </div>
@@ -472,7 +496,7 @@ function OfficerCard({ officer, onEdit, onDelete, isAdmin, isArchived }) {
         ) : (
           <span className="badge-off-duty">Archived</span>
         )}
-        <span className="text-xs font-mono text-slate-600 tracking-wider">{card_uid}</span>
+        <span className="text-xs font-mono text-slate-500 tracking-wider">{nfcUid(officer) || 'No card linked'}</span>
       </div>
     </div>
   )
@@ -534,7 +558,7 @@ export default function OfficerRoster() {
       || o.first_name?.toLowerCase().includes(q)
       || o.last_name?.toLowerCase().includes(q)
       || o.position?.toLowerCase().includes(q)
-      || o.card_uid?.toLowerCase().includes(q)
+      || nfcUid(o)?.toLowerCase().includes(q)
   })
 
   const onDuty  = visibleOfficers.filter(o => o.active !== false && o.status === 'ON_DUTY' && o.status_at && dateKey(o.status_at) === dateKey() && !isDayClosed(dateKey())).length
@@ -550,7 +574,7 @@ export default function OfficerRoster() {
             Officer Roster
           </h1>
           <p className="text-slate-400 mt-1 text-sm flex items-center gap-2 flex-wrap">
-            <span>{officers.length} enrolled</span>
+            <span>{officers.length} officer profiles</span>
             {!isArchivedView && (
               <>
                 <span>&nbsp;·&nbsp;</span>
@@ -592,7 +616,7 @@ export default function OfficerRoster() {
 
           {isAdmin && !isArchivedView && (
             <button id="add-officer-btn" onClick={() => setModal('add')} className="btn-primary">
-              <Plus className="w-4 h-4" /> Enrol Officer
+              <Plus className="w-4 h-4" /> Add or Link Officer
             </button>
           )}
         </div>
@@ -625,11 +649,11 @@ export default function OfficerRoster() {
               ? 'No officers match your search.'
               : isArchivedView
                 ? 'No snapshot records found for this semester.'
-                : 'No officers enrolled yet.'}
+                : 'No officer profiles yet.'}
           </p>
           {!search && isAdmin && !isArchivedView && (
             <button onClick={() => setModal('add')} className="btn-primary mt-2">
-              <Plus className="w-4 h-4" /> Enrol First Officer
+              <Plus className="w-4 h-4" /> Add First Officer
             </button>
           )}
         </div>
@@ -648,9 +672,10 @@ export default function OfficerRoster() {
         </div>
       )}
 
+      {isAdmin && !isArchivedView && <PendingCards onLink={uid=>setModal({pending_card_uid:uid})} />}
       {modal && (
         <OfficerModal
-          key={modal === 'add' ? 'new' : modal.card_uid}
+          key={modal === 'add' ? 'new' : modal.card_uid || modal.pending_card_uid}
           officer={modal === 'add' ? null : modal}
           existingOfficers={officers}
           onClose={() => setModal(null)}

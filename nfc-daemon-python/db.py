@@ -264,6 +264,11 @@ def save_roster(conn, officers):
 def is_enrolled(conn, uid):
     return conn.execute('SELECT 1 FROM officer_cache WHERE card_uid=?',(uid.upper(),)).fetchone() is not None
 
+@synchronized
+def accepts_unknown_cards(conn):
+    row=conn.execute("SELECT value FROM reader_metadata WHERE key='accept_unknown_cards'").fetchone()
+    return bool(row and row[0]=='1')
+
 
 def auto_close_id(clock_in_id):
     # Matches PostgreSQL md5(id::text || ':auto-close')::uuid, including UUID bits.
@@ -312,6 +317,7 @@ def reconcile_context(conn, context):
                          "ON CONFLICT(card_uid) DO UPDATE SET status=excluded.status,last_tap_date=excluded.last_tap_date,last_event_id=excluded.last_event_id,last_event_at=excluded.last_event_at",
                          (uid,'ON_DUTY' if event['type']=='CLOCK_IN' else 'OFF_DUTY',day,event['id'],event['timestamp']))
         conn.execute("INSERT INTO reader_metadata(key,value) VALUES ('snapshot_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(snapshot,))
+        conn.execute("INSERT INTO reader_metadata(key,value) VALUES ('accept_unknown_cards',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",('1' if context.get('accept_unknown_cards',False) else '0',))
     return True
 
 

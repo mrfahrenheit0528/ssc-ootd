@@ -46,6 +46,6 @@ export function filterAttendanceSessions(sessions, search) {
   const query = search.trim().toLowerCase()
   if (!query) return sessions
   return sessions.filter(session => [session.clockIn, session.clockOut].some(log => log &&
-    [log.officer_name, log.card_uid, log.type, log.type?.replaceAll('_', ' ')]
+    [log.officer_name, log.nfc_uid, log.card_uid, log.type, log.type?.replaceAll('_', ' ')]
       .some(value => value?.toLowerCase().includes(query))))
 }

@@ -128,21 +128,23 @@ def main() -> None:
                     logger.info('Card read for enrollment; attendance skipped.')
                     continue
             except Exception:
-                # Known cards still work offline; unknown cards are never admitted.
+                # Attendance still works offline using the last confirmed server capability.
                 pass
             try:
                 registry.refresh()  # Reconcile manual corrections before deciding the next transition.
             except Exception:
                 pass
             db.recover_overdue(conn,close_time=cfg.auto_close_time)
-            if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid):
+            if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid) and not registry.accepts_unknown_cards():
                 try:
                     registry.refresh()  # Accept a newly enrolled card without waiting for the periodic refresh.
                 except Exception:
                     pass
-                if not registry.is_enrolled(uid):
-                    logger.info('Unenrolled card ignored; refresh roster online before first use.')
+                if not registry.is_enrolled(uid) and not registry.accepts_unknown_cards():
+                    logger.info('Unknown cards require the updated server migration; refresh online before first use.')
                     continue
+            if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid):
+                logger.info('Unlinked card: attendance will stay pending until an admin identifies its owner.')
             result = sm.process_tap(uid)
             if result in (TapResult.CLOCKED_IN, TapResult.CLOCKED_OUT):
                 syncer.trigger()

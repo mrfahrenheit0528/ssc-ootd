@@ -9,6 +9,7 @@ import { format } from 'date-fns'
 import { dateKey,dateBounds,formatTime } from '../utils/attendanceTime'
 import { buildAttendanceSessions, latestAttendanceByOfficer } from '../utils/attendanceSessions'
 import { useSemester } from '../contexts/SemesterContext'
+import { nfcUid } from '../utils/officerIdentity'
 import { Monitor, LogOut, Clock, Users, Wifi, WifiOff, GraduationCap } from 'lucide-react'
 
 function StatCard({ icon: Icon, label, value, accent }) {
@@ -30,7 +31,7 @@ function StatCard({ icon: Icon, label, value, accent }) {
   )
 }
 
-function SessionRow({ session, isNew }) {
+function SessionRow({ session, isNew, officer }) {
   const { officer_name, card_uid, clockIn, clockOut } = session
   const fmt = formatTime
 
@@ -43,7 +44,7 @@ function SessionRow({ session, isNew }) {
           </div>
           <div>
             <p className="font-medium text-slate-100">{officer_name ?? card_uid}</p>
-            <p className="text-xs text-slate-500 font-mono">{card_uid}</p>
+            <p className="text-xs text-slate-500 font-mono">{nfcUid(officer,card_uid) || 'No card linked'}</p>
           </div>
         </div>
       </td>
@@ -67,6 +68,7 @@ function SessionRow({ session, isNew }) {
 export default function LiveKiosk() {
   const { activeSemester }        = useSemester()
   const [logs, setLogs]           = useState([])
+  const [officerMap,setOfficerMap] = useState({})
   const [loading, setLoading]     = useState(true)
   const [connected, setConnected] = useState(false)
   const [error,setError] = useState('')
@@ -76,6 +78,7 @@ export default function LiveKiosk() {
 
   const [dayKey, setDayKey] = useState(() => dateKey())
   const today = new Date(dayKey + 'T12:00:00')
+  useEffect(()=>watchRecords('officers',{includeInactive:true},rows=>setOfficerMap(Object.fromEntries(rows.map(o=>[o.card_uid,o]))),()=>{}),[])
   useEffect(() => {
     const timer = setInterval(() => setDayKey(dateKey()), 30000)
     return () => clearInterval(timer)
@@ -194,6 +197,7 @@ export default function LiveKiosk() {
                   <SessionRow
                     key={`${session.card_uid}-${i}`}
                     session={session}
+                    officer={officerMap[session.card_uid]}
                     isNew={newUids.has(session.card_uid)}
                   />
                 ))}

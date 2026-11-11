@@ -72,6 +72,20 @@ test('profile create and restore are distinct server operations', async () => {
   assert.equal(calls[1][1].p_reactivate,true)
 })
 
+test('optional cards stay separate from profile keys and pending queries use null filters', async () => {
+  const repo=repository((url,options)=>{
+    if (url.pathname.endsWith('/pending_card_events')) {
+      assert.equal(url.searchParams.get('linked_officer_key'),'is.null')
+      return json([])
+    }
+    assert.equal(url.pathname,'/rest/v1/rpc/save_officer_profile')
+    assert.deepEqual(JSON.parse(options.body),{p_id:null,p_nfc_uid:null,p_profile:{first_name:'Maria',last_name:'Reyes',position:'Secretary'},p_create:true,p_reactivate:false})
+    return json('OFF0123456789ABCDEF0123456789ABCDEF')
+  })
+  await repo.saveOfficerProfile(null,'',{first_name:'Maria',last_name:'Reyes',position:'Secretary'},{create:true})
+  await repo.listRecords('pending_card_events',{isNull:['linked_officer_key']})
+})
+
 test('deleting attendance requires a reason through the audited RPC', async () => {
   const repo=repository((url,options)=>{
     assert.equal(url.pathname,'/rest/v1/rpc/delete_attendance')

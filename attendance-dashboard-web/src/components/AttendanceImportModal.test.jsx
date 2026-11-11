@@ -75,3 +75,18 @@ test('server rejection keeps the review available for a safe retry', async () =>
   assert.match(screen.getByRole('alert').textContent, /Run the new attendance CSV import SQL migration/)
   assert.equal(screen.getByLabelText('Time-in for row 2').value, '09:00')
 })
+
+test('an unmatched CSV name can create a profile without a card after explicit selection', async () => {
+  const user = userEvent.setup(), calls = setup()
+  await upload(user, 'date,name,first_name,last_name,position,time_in,time_out,review_status\n2020-09-01,Maria Reyes,Maria,Reyes,Secretary,09:00,17:00,ready')
+  assert.equal(screen.getByRole('button', { name: 'Import 0 sessions' }).disabled, true)
+  await user.click(screen.getByRole('button', { name: 'Create missing profiles without cards' }))
+  const button = screen.getByRole('button', { name: 'Import 1 sessions' })
+  await waitFor(() => assert.equal(button.disabled, false))
+  await user.click(button)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0][1][0].create_profile, true)
+  assert.equal(calls[0][1][0].first_name, 'Maria')
+  assert.equal(calls[0][1][0].last_name, 'Reyes')
+  assert.equal(calls[0][1][0].card_uid, undefined)
+})

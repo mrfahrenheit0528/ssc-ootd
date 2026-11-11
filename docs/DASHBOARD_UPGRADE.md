@@ -3,8 +3,9 @@
 Use this guide if the original Supabase setup already works on your PC.
 The updated code needs **one additional SQL migration** in that same project.
 Your existing `.env`, reader registration, and `config.json` stay in place.
-For the later paper-logbook CSV import feature, apply the separate new migration
-using [ATTENDANCE_IMPORT.md](ATTENDANCE_IMPORT.md) after this scheduling upgrade.
+For the later paper-logbook CSV import, optional NFC profiles, and pending card
+linking, apply the separate new migration using
+[ATTENDANCE_IMPORT.md](ATTENDANCE_IMPORT.md) after this scheduling upgrade.
 Scheduling stays **admin only**. There is no separate secretary sign-in role.
 
 ## 1. Finish uploading, then stop both programs

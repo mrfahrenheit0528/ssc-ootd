@@ -16,7 +16,7 @@ export async function fetchAttendanceContext(selectedSemesterId = null, semester
 }
 
 const HEADER = ['Date', 'Officer Name', 'Position', 'Card UID', 'Assignment Type', 'Attendance Status', 'Clock In', 'Clock Out', 'Duration', 'Auto-Closed', 'Remarks']
-const values = row => [row.date, row.officer_name, row.position, row.card_uid, row.assignment, row.status, row.clockInTime, row.clockOutTime, row.duration, row.isAutoClosed, row.remarks]
+const values = row => [row.date, row.officer_name, row.position, row.nfc_uid ?? '', row.assignment, row.status, row.clockInTime, row.clockOutTime, row.duration, row.isAutoClosed, row.remarks]
 export function exportXLSXReport(options = {}) {
   const analysis = analyzeAttendanceData(options)
   const { dateFrom, dateTo, selectedSemester, semesters = [] } = options

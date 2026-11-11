@@ -54,3 +54,15 @@ test('existing visits detect duplicates, partial collisions and containing open 
   assert.ok(preview([{ ...row, time_in: '10:00', time_out: '11:00' }], { existing: events })[0].issues.length)
   assert.equal(preview([row], { existing: events.map(event => ({ ...event, deleted_at: '2020-09-02' })) })[0].duplicate, false)
 })
+
+test('CSV can explicitly create profiles without NFC cards and match their actual cards later',()=>{
+  const candidate={...row,name:'New Person',first_name:'New',last_name:'Person',position:'Secretary',create_profile:true}
+  const result=preview([candidate])[0]
+  assert.equal(result.issues.length,0)
+  assert.equal(result.payload.create_profile,true)
+  assert.equal(result.payload.first_name,'New')
+  assert.equal(result.payload.card_uid,undefined)
+  assert.ok(preview([{...candidate,last_name:''}])[0].issues.length)
+  const key='OFF'+'A'.repeat(32)
+  assert.equal(matchOfficer({card_uid:'REALCARD1'},[{card_uid:key,nfc_uid:'REALCARD1'}]).card_uid,key)
+})

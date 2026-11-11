@@ -14,7 +14,7 @@ import json
 import os
 import unittest
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -40,6 +40,8 @@ def initialize():
         conn.execute('GRANT USAGE ON SCHEMA public,auth TO anon,authenticated')
         conn.execute('CREATE PUBLICATION supabase_realtime')
         for migration in sorted((Path(__file__).resolve().parents[1] / 'supabase/migrations').glob('*.sql')):
+            if migration.name.startswith('202611120001'):
+                conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES ('PRECARD1','Existing','Officer','Secretary')")
             if migration.name.startswith('202611100001'):
                 conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES ('LEGACY01','Sample','Officer','Secretary')")
                 conn.execute("INSERT INTO public.semesters(id,name,start_date,status) VALUES ('legacy','Legacy',((now() AT TIME ZONE 'Asia/Manila')::date-30),'active')")
@@ -48,6 +50,9 @@ def initialize():
                 conn.execute("INSERT INTO public.day_config(id,data) VALUES (((now() AT TIME ZONE 'Asia/Manila')::date+1)::text,%s)",(Jsonb({'type':'holiday','note':'School closure'}),))
                 conn.execute("INSERT INTO public.day_config(id,data) VALUES (((now() AT TIME ZONE 'Asia/Manila')::date+2)::text,%s)",(Jsonb({'type':'regular','note':'Note only'}),))
             conn.execute(migration.read_text(encoding='utf-8'))
+            if migration.name.startswith('202611120001'):
+                assert conn.execute("SELECT card_uid,nfc_uid FROM public.officers WHERE card_uid='PRECARD1'").fetchone()==('PRECARD1','PRECARD1')
+                conn.execute("DELETE FROM public.officers WHERE card_uid='PRECARD1'")
             if migration.name.startswith('202611100001'):
                 imported=conn.execute("SELECT schedule FROM public.semester_schedules WHERE semester_id='legacy'").fetchone()[0]
                 assert imported['1']['type']=='scheduled' and imported['0']['type']=='unscheduled'
@@ -152,7 +157,7 @@ class DatabaseTests(unittest.TestCase):
         self.role(anonymous=True)
         with self.conn.transaction():
             try:
-                with self.conn.transaction(): self.ingest([self.event(), self.event(card_uid='UNKNOWN1')])
+                with self.conn.transaction(): self.ingest([self.event(), self.event(card_uid='BAD!')])
             except psycopg.errors.RaiseException: pass
         self.role(ADMIN)
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0], 0)
@@ -355,6 +360,94 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(any(e['manually_edited'] and e['type']=='CLOCK_OUT' for e in result['events']))
 
 
+    def test_unlinked_profile_and_paper_import_keep_one_identity_after_card_link(self):
+        self.role(ADMIN)
+        rows=[{'date':'2020-09-01','first_name':'Sample','last_name':'Unlinked','position':'Secretary','create_profile':True,'time_in':'09:00:00','time_out':'17:00:00'}]
+        self.assertEqual(self.csv_import(rows)['created_profiles'],1)
+        key,nfc=self.conn.execute("SELECT card_uid,nfc_uid FROM public.officers WHERE last_name='Unlinked'").fetchone()
+        self.assertTrue(key.startswith('OFF'));self.assertIsNone(nfc)
+        self.assertEqual(self.csv_import(rows)['skipped_sessions'],1)
+        self.conn.execute('SELECT public.save_officer_profile(%s,%s,%s,false)',(key,'BBBB2222',Jsonb({'first_name':'Sample','last_name':'Unlinked','position':'Secretary'})))
+        self.role(anonymous=True)
+        self.ingest([self.event(card_uid='BBBB2222',timestamp='2020-09-02T09:00:00+08:00'),self.event(card_uid='BBBB2222',action_type='CLOCK_OUT',timestamp='2020-09-02T17:00:00+08:00')])
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute("SELECT count(*),count(DISTINCT card_uid) FROM public.attendance_logs WHERE officer_name='Sample Unlinked'").fetchone(),(4,1))
+        self.assertEqual(self.conn.execute('SELECT card_uid,nfc_uid FROM public.officers WHERE card_uid=%s',(key,)).fetchone(),(key,'BBBB2222'))
+
+    def test_unknown_scans_are_pending_admin_only_and_linked_without_rekeying(self):
+        events=[self.event(card_uid='UNKNOWN1',timestamp='2020-09-02T09:00:00+08:00'),self.event(card_uid='UNKNOWN1',action_type='CLOCK_OUT',timestamp='2020-09-02T17:00:00+08:00')]
+        self.role(anonymous=True);self.assertEqual(self.ingest(events),2);self.assertEqual(self.ingest(events),2)
+        self.role(OFFICER)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0],0)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events').fetchone()[0],0)
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events').fetchone()[0],2)
+        key=self.conn.execute('SELECT public.save_officer_profile(null,null,%s,true)',(Jsonb({'first_name':'Pending','last_name':'Owner','position':'Secretary'}),)).fetchone()[0]
+        self.conn.execute('SELECT public.save_officer_profile(%s,%s,%s,false)',(key,'UNKNOWN1',Jsonb({'first_name':'Pending','last_name':'Owner','position':'Secretary'})))
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events WHERE linked_officer_key IS NULL').fetchone()[0],0)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_audit WHERE operation=\'link_card\'').fetchone()[0],2)
+        self.conn.execute("SELECT public.delete_attendance(%s,'Wrong scan from source')",(events[0]['event_id'],))
+        self.role(anonymous=True);self.assertEqual(self.ingest(events),2)
+        context=self.conn.execute('SELECT public.reader_context(%s,%s,%s)',(DEVICE,TOKEN,Jsonb([e['event_id'] for e in events]))).fetchone()[0]
+        self.assertTrue(context['accept_unknown_cards'])
+        self.assertTrue(all(e['event_id'] in context['known_event_ids'] for e in events))
+        self.assertIn('UNKNOWN1',[o['card_uid'] for o in context['officers']])
+
+    def test_pending_cutoff_recovery_is_idempotent_and_promotes_source_ids(self):
+        event=self.event(card_uid='UNKNOWN1',timestamp='2020-09-02T09:00:00+08:00')
+        self.role(anonymous=True);self.ingest([event])
+        self.role(ADMIN)
+        self.conn.execute('SELECT public.recover_due_attendance()');self.conn.execute('SELECT public.recover_due_attendance()')
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events').fetchone()[0],2)
+        key=self.conn.execute('SELECT public.save_officer_profile(null,%s,%s,true)',('UNKNOWN1',Jsonb({'first_name':'Sample','last_name':'Pending','position':'Secretary'}))).fetchone()[0]
+        ids=self.conn.execute('SELECT id FROM public.attendance_logs WHERE card_uid=%s',(key,)).fetchall()
+        expected=hashlib.md5((event['event_id']+':auto-close').encode()).hexdigest()
+        self.assertIn(expected,[i[0].hex for i in ids])
+
+    def test_one_card_cannot_be_assigned_to_multiple_profiles(self):
+        self.role(ADMIN)
+        key=self.conn.execute('SELECT public.save_officer_profile(null,null,%s,true)',(Jsonb({'first_name':'Other','last_name':'Officer','position':'Secretary'}),)).fetchone()[0]
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():
+            self.conn.execute('SELECT public.save_officer_profile(%s,%s,%s,false)',(key,'AAAA1111',Jsonb({'first_name':'Other','last_name':'Officer','position':'Secretary'})))
+        self.assertIsNone(self.conn.execute('SELECT nfc_uid FROM public.officers WHERE card_uid=%s',(key,)).fetchone()[0])
+
+    def test_reader_uses_physical_card_ids_for_new_profiles_and_current_events(self):
+        self.role(ADMIN)
+        key=self.conn.execute('SELECT public.save_officer_profile(null,%s,%s,true)',('BBBB2222',Jsonb({'first_name':'Sample','last_name':'Current','position':'Officer'}))).fetchone()[0]
+        self.role(anonymous=True)
+        event=self.event(card_uid='BBBB2222',timestamp=(datetime.now(timezone.utc)-timedelta(minutes=1)).isoformat())
+        self.ingest([event])
+        context=self.conn.execute('SELECT public.reader_context(%s,%s,%s)',(DEVICE,TOKEN,Jsonb([event['event_id']]))).fetchone()[0]
+        self.assertIn('BBBB2222',[o['card_uid'] for o in context['officers']])
+        self.assertNotIn(key,[o['card_uid'] for o in context['officers']])
+        self.assertEqual(next(e for e in context['events'] if e['id']==event['event_id'])['card_uid'],'BBBB2222')
+        self.assertIn(event['event_id'],context['known_event_ids'])
+
+    def test_pending_recovery_can_be_acknowledged_by_another_reader(self):
+        other_device=str(uuid4())
+        self.conn.execute('INSERT INTO public.reader_devices(id,name,token_hash) VALUES (%s,%s,%s)',(other_device,'second reader',hashlib.sha256(TOKEN.encode()).hexdigest()))
+        event=self.event(card_uid='UNKNOWN1',timestamp='2020-09-02T09:00:00+08:00')
+        self.role(anonymous=True);self.ingest([event])
+        self.conn.execute('SELECT public.reader_context(%s,%s)',(DEVICE,TOKEN))
+        auto=self.event(card_uid='UNKNOWN1',event_id=str(UUID(hashlib.md5((event['event_id']+':auto-close').encode()).hexdigest())),action_type='CLOCK_OUT',timestamp='2020-09-02T21:00:00+08:00',is_auto_closed=True)
+        self.assertEqual(self.conn.execute('SELECT public.ingest_attendance(%s,%s,%s)',(other_device,TOKEN,Jsonb([auto]))).fetchone()[0],1)
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events').fetchone()[0],2)
+
+    def test_csv_name_matching_ignores_accents_initials_and_word_order(self):
+        self.conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES ('ACCENT01','Ana María J.','Peña','Officer')")
+        self.role(ADMIN)
+        row={'date':'2020-09-01','first_name':'Pena','last_name':'Ana Maria','create_profile':True,'time_in':'09:00:00','time_out':'17:00:00'}
+        self.assertEqual(self.csv_import([row])['created_profiles'],0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.attendance_logs WHERE card_uid='ACCENT01'").fetchone()[0],2)
+
+    def test_csv_created_profiles_are_rolled_back_with_a_failed_batch(self):
+        self.role(ADMIN)
+        self.conn.execute("INSERT INTO public.semesters(id,name,start_date,end_date,status) VALUES ('csv-term','Historical','2020-01-01','2020-12-31','ended')")
+        row={'date':'2020-09-01','first_name':'Temporary','last_name':'Profile','create_profile':True,'time_in':'09:00:00','time_out':'17:00:00'}
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction(): self.csv_import([row,{**row,'date':'2019-01-01'}])
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.officers WHERE last_name='Profile'").fetchone()[0],0)
+
     def csv_import(self, rows=None, reason='Transcribed paper logbook'):
         self.conn.execute("INSERT INTO public.semesters(id,name,start_date,end_date,status) VALUES ('csv-term','Historical term','2020-01-01','2020-12-31','ended') ON CONFLICT(id) DO NOTHING")
         if rows is None:
@@ -369,7 +462,7 @@ class DatabaseTests(unittest.TestCase):
     def test_csv_import_is_audited_and_retry_does_not_duplicate(self):
         self.role(ADMIN)
         result=self.csv_import()
-        self.assertEqual(result,{'imported_sessions':1,'skipped_sessions':0,'inserted_events':2})
+        self.assertEqual(result,{'imported_sessions':1,'skipped_sessions':0,'inserted_events':2,'created_profiles':0})
         self.assertEqual(self.csv_import()['skipped_sessions'],1)
         audits=self.conn.execute("SELECT operation,reason,after_data->'csv_import'->>'source' FROM public.attendance_audit ORDER BY id").fetchall()
         self.assertEqual(audits,[('import','Transcribed paper logbook','sample page row 1')]*2)

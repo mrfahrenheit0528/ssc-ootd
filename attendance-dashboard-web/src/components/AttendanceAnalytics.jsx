@@ -100,7 +100,7 @@ function OfficerComparison({ officers, scope }) {
   const [expanded, setExpanded] = useState(null)
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return officers.filter(o => [o.name, o.uid, o.position].some(v => v.toLowerCase().includes(query)))
+    return officers.filter(o => [o.name, o.nfcUid ?? '', o.position].some(v => v.toLowerCase().includes(query)))
       .sort((a, b) => (sort === 'rate' ? (b.rate ?? -1) - (a.rate ?? -1) : sort === 'absent' ? b.absentDays - a.absentDays : sort === 'hours' ? b.seconds - a.seconds : 0) || a.name.localeCompare(b.name))
   }, [officers, search, sort])
   const pageCount = Math.max(1, Math.ceil(filtered.length / 10))
@@ -109,7 +109,7 @@ function OfficerComparison({ officers, scope }) {
     const csv = serializeCSV([
       ['Officer attendance analytics', `${scope.from} to ${scope.to}`],
       ['Officer', 'Card UID', 'Position', 'Finalized required days', 'Finalized assigned present', 'Absent days', 'Pending days', 'Fulfillment (%)', 'Voluntary days', 'Visits', 'Recorded hours', 'Incomplete visits', 'Unpaired clock-outs', 'Auto-closed visits'],
-      ...filtered.map(o => [o.name, o.uid, o.position, o.finalizedAssigned, o.finalizedPresent, o.absentDays, o.pendingDays, o.rate ?? '', o.voluntaryDays, o.visits, (o.seconds / 3600).toFixed(2), o.incomplete, o.orphanOuts, o.autoClosed]),
+      ...filtered.map(o => [o.name, o.nfcUid ?? '', o.position, o.finalizedAssigned, o.finalizedPresent, o.absentDays, o.pendingDays, o.rate ?? '', o.voluntaryDays, o.visits, (o.seconds / 3600).toFixed(2), o.incomplete, o.orphanOuts, o.autoClosed]),
     ])
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
     const link = document.createElement('a')
@@ -145,7 +145,7 @@ function OfficerRow({ officer: o, expanded, onToggle }) {
       <td className="px-5 py-4 tabular-nums text-rose-300">{o.absentDays}</td><td className="px-5 py-4 tabular-nums text-amber-300">{o.pendingDays}</td><td className="px-5 py-4 tabular-nums text-brand-300">{o.voluntaryDays}</td><td className="px-5 py-4 tabular-nums text-slate-300">{number(o.seconds / 3600)} h</td>
     </tr>
     <tr id={`analytics-officer-${o.uid}`} hidden={!expanded}><td colSpan="6" className="px-5 py-4 bg-brand-500/5"><div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-400 animate-fade-in">
-      <span>Card: <strong className="font-mono text-slate-300">{o.uid}</strong></span><span>{o.visits} visits</span><span>{o.attendedAssignedDays} / {o.assignedDays} assigned days attended (including open days)</span><span>{o.incomplete} incomplete visits</span><span>{o.openVisits} open visits</span><span>{o.orphanOuts} unpaired clock-outs</span><span>{o.autoClosed} auto-closed visits</span>
+      <span>Card: <strong className="font-mono text-slate-300">{o.nfcUid || 'No card linked'}</strong></span><span>{o.visits} visits</span><span>{o.attendedAssignedDays} / {o.assignedDays} assigned days attended (including open days)</span><span>{o.incomplete} incomplete visits</span><span>{o.openVisits} open visits</span><span>{o.orphanOuts} unpaired clock-outs</span><span>{o.autoClosed} auto-closed visits</span>
     </div></td></tr>
   </>
 }

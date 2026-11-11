@@ -57,6 +57,28 @@ class TestSupabaseSync(unittest.TestCase):
         with self.assertRaises(RuntimeError): self.syncer._sync_cycle()
         self.assertEqual(len(db.get_unsynced_events(self.conn)), 1)
 
+    def test_unknown_card_capability_is_cached_only_from_a_new_server_snapshot(self):
+        self.assertFalse(db.accepts_unknown_cards(self.conn))
+        now=datetime.now(timezone.utc)
+        context={'snapshot_at':now.isoformat(),'date':db.today_key(),'events':[],'known_event_ids':[],'accept_unknown_cards':True}
+        self.assertTrue(db.reconcile_context(self.conn,context))
+        self.assertTrue(db.accepts_unknown_cards(self.conn))
+        older={**context,'snapshot_at':(now-timedelta(seconds=1)).isoformat(),'accept_unknown_cards':False}
+        self.assertFalse(db.reconcile_context(self.conn,older))
+        self.assertTrue(db.accepts_unknown_cards(self.conn))
+        newer={**context,'snapshot_at':(now+timedelta(seconds=1)).isoformat()}
+        del newer['accept_unknown_cards']
+        db.reconcile_context(self.conn,newer)
+        self.assertFalse(db.accepts_unknown_cards(self.conn))
+
+    def test_unlinked_card_events_queue_and_acknowledge_without_an_officer_cache_entry(self):
+        self.assertFalse(db.is_enrolled(self.conn,'UNKNOWN1'))
+        db.record_transition(self.conn,'UNKNOWN1','CLOCK_IN')
+        db.record_transition(self.conn,'UNKNOWN1','CLOCK_OUT')
+        self.syncer._sync_cycle()
+        self.assertEqual(len(self.cloud.ingest.call_args.args[0]),2)
+        self.assertEqual(db.get_unsynced_events(self.conn),[])
+
     def test_event_and_status_rollback_together(self):
         self.conn.execute("CREATE TRIGGER fail_state BEFORE INSERT ON daily_state BEGIN SELECT RAISE(ABORT,'failure'); END")
         with self.assertRaises(sqlite3.IntegrityError): db.record_transition(self.conn, 'AAAA1111', 'CLOCK_IN')

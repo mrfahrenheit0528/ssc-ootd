@@ -24,8 +24,10 @@ The Analytics route and sidebar entry require an admin account.
 - **Pending duties:** assigned officers without a clock-in on dates that have not
   finalized. Pending slots and all open-day slots are excluded from the rate.
   With no finalized required duties, the rate shows a dash.
-- **Officers who attended:** distinct card UIDs with a clock-in in the period.
+- **Officers who attended:** distinct officer profiles with a clock-in in the period.
   Visits count clock-in sessions, so repeat visits can exceed the officer count.
+  An NFC card is optional: imported logbook entries and later linked card scans
+  use one profile. Unknown-card events appear only after an admin links them.
 - **Voluntary attendance:** distinct officer/date combinations without a required
   assignment. No Classes and Optional days require nobody and create no absences.
 - **Recorded hours:** summed paired clock-in/out durations. Automatic 9 PM

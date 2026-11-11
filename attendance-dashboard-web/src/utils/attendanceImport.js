@@ -1,6 +1,7 @@
 import { dateKey, toDate } from './attendanceTime.js'
+import { nfcUid } from './officerIdentity.js'
 
-export const IMPORT_HEADERS = ['date', 'name', 'time_in', 'time_out', 'card_uid', 'signature', 'source', 'notes', 'review_status']
+export const IMPORT_HEADERS = ['date', 'name', 'first_name', 'last_name', 'position', 'time_in', 'time_out', 'card_uid', 'signature', 'source', 'notes', 'review_status']
 
 // Strict quoted CSV parsing: never silently shift a name or time into another column.
 export function parseAttendanceCSV(text) {
@@ -46,7 +47,7 @@ export const normalizeOfficerName = name => String(name ?? '').normalize('NFD').
   .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(token => token.length > 1).sort().join(' ')
 export const officerName = officer => `${officer.first_name} ${officer.last_name}`.trim()
 export function matchOfficer(row, officers) {
-  if (row.card_uid) return officers.find(o => o.card_uid === row.card_uid.trim().toUpperCase()) ?? null
+  if (row.card_uid) return officers.find(o => o.card_uid === row.card_uid.trim().toUpperCase() || nfcUid(o) === row.card_uid.trim().toUpperCase()) ?? null
   const normalized = normalizeOfficerName(row.name)
   if (!normalized) return null
   const matches = officers.filter(o => normalizeOfficerName(officerName(o)) === normalized)
@@ -71,24 +72,28 @@ export function previewAttendanceImport(rows, { officers = [], semester, existin
   const seen = new Set(), ranges = []
   return rows.map(row => {
     const issues = [], officer = matchOfficer(row, officers)
+    const createsProfile = !officer && row.create_profile === true && !row.card_uid
     const entered = parseImportTime(row.time_in), exited = parseImportTime(row.time_out)
     const dateValid = validImportDate(row.date)
     if (!semester) issues.push('Choose a semester.')
     if (!dateValid) issues.push('Enter the date as YYYY-MM-DD.')
     else if (semester && (row.date < semester.start_date || (semester.end_date && row.date > semester.end_date))) issues.push('Date is outside the selected semester.')
-    if (!officer) issues.push('Choose an enrolled officer; the name or UID is unmatched or ambiguous.')
-    else if (row.card_uid && row.name && normalizeOfficerName(row.name) !== normalizeOfficerName(officerName(officer))) issues.push('Name does not match this card UID. Confirm the officer selection.')
+    if (!officer && !createsProfile) issues.push('Choose an officer or enable a new profile without a card.')
+    if (createsProfile && (!row.first_name?.trim() || !row.last_name?.trim() || row.first_name.length > 100 || row.last_name.length > 100 || (row.position?.length ?? 0) > 150)) issues.push('First and last names are required for a new profile (100 characters each).')
+    if (createsProfile && officers.some(o => normalizeOfficerName(officerName(o)) === normalizeOfficerName(`${row.first_name} ${row.last_name}`))) issues.push('A profile with this name already exists. Select it explicitly.')
+    if (officer && row.card_uid && row.name && normalizeOfficerName(row.name) !== normalizeOfficerName(officerName(officer))) issues.push('Name does not match this card UID. Confirm the officer selection.')
     if (!entered || !exited) issues.push('Both times are required. Use HH:mm (24-hour) or h:mm AM/PM.')
     if (entered && exited && exited <= entered) issues.push('Time-out must be later than time-in on the same date.')
     if (dateValid && exited && new Date(`${row.date}T${exited}+08:00`) > toDate(now)) issues.push('Attendance cannot end in the future.')
     if (row.review_status && !['ready', 'confirmed'].includes(row.review_status.toLowerCase())) issues.push('Review the transcription and mark this row reviewed.')
     if ((row.source?.length ?? 0) > 200 || (row.notes?.length ?? 0) > 1000 || (row.signature?.length ?? 0) > 50) issues.push('Source, notes, or signature text is too long.')
     let duplicate = false
-    if (officer && entered && exited && dateValid && exited > entered) {
+    if ((officer || createsProfile) && entered && exited && dateValid && exited > entered) {
       const start = new Date(`${row.date}T${entered}+08:00`).getTime(), end = new Date(`${row.date}T${exited}+08:00`).getTime()
-      const key = `${officer.card_uid}|${start}|${end}`
+      const profileKey = officer?.card_uid ?? `name:${normalizeOfficerName(`${row.first_name} ${row.last_name}`)}`
+      const key = `${profileKey}|${start}|${end}`
       if (row.included !== false && !issues.length) duplicate = seen.has(key)
-      const dayEvents = existing.filter(event => !event.deleted_at && event.card_uid === officer.card_uid && dateKey(event.timestamp) === row.date)
+      const dayEvents = existing.filter(event => !event.deleted_at && event.card_uid === officer?.card_uid && dateKey(event.timestamp) === row.date)
       const hasIn = dayEvents.some(event => event.type === 'CLOCK_IN' && toDate(event.timestamp).getTime() === start)
       const hasOut = dayEvents.some(event => event.type === 'CLOCK_OUT' && toDate(event.timestamp).getTime() === end)
       const inside = dayEvents.some(event => { const time = toDate(event.timestamp).getTime(); return time > start && time < end })
@@ -98,11 +103,12 @@ export function previewAttendanceImport(rows, { officers = [], semester, existin
         if (hasIn || hasOut || inside || prior?.type === 'CLOCK_IN') issues.push('Overlaps existing attendance. Review the existing entries instead.')
       }
       if (row.included !== false && !issues.length && !duplicate) {
-        if (ranges.some(range => range.uid === officer.card_uid && start <= range.end && end >= range.start)) issues.push('Overlaps another selected CSV row. Correct or exclude one visit.')
-        else { seen.add(key); ranges.push({ uid: officer.card_uid, start, end }) }
+        if (ranges.some(range => range.uid === profileKey && start <= range.end && end >= range.start)) issues.push('Overlaps another selected CSV row. Correct or exclude one visit.')
+        else { seen.add(key); ranges.push({ uid: profileKey, start, end }) }
       }
     }
-    return { ...row, officer, issues, duplicate, payload: { date: row.date, card_uid: officer?.card_uid,
-      time_in: entered, time_out: exited, signature: row.signature ?? '', source: row.source ?? '', notes: row.notes ?? '' } }
+    return { ...row, officer, createsProfile, issues, duplicate, payload: { date: row.date, card_uid: officer?.card_uid,
+      time_in: entered, time_out: exited, signature: row.signature ?? '', source: row.source ?? '', notes: row.notes ?? '',
+      ...(createsProfile ? { create_profile: true, first_name: (row.first_name ?? '').trim(), last_name: (row.last_name ?? '').trim(), position: row.position?.trim() || 'Officer' } : {}) } }
   })
 }

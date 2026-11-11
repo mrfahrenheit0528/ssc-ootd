@@ -26,6 +26,8 @@ for the new semester/calendar migration before starting the updated code.
 - Archived roster snapshots retain their original photo references.
 - CSV and Excel exports with assigned/voluntary attendance calculations.
 - Admin [CSV imports](docs/ATTENDANCE_IMPORT.md) with name review, duplicate checks, and audited batches.
+- Officer profiles with optional NFC cards; link a card to imported history later.
+- Unknown-card attendance stays pending until an admin links it to an officer.
 - Semester weekly assignments and a day-type calendar, managed by admins.
 - Admin [attendance analytics](docs/ANALYTICS.md) with trends, officer comparisons, and CSV exports.
 - Audited attendance corrections with reader-state reconciliation.

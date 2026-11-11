@@ -84,9 +84,10 @@ at semester boundaries. Attendance requests retain generation guards.
 | Table | Contents |
 |---|---|
 | `user_roles` | Approved Auth user UUIDs with `admin` or `officer` roles |
-| `officers` | Card UID, profile, photo reference, derived status, active flag |
+| `officers` | Stable profile key, optional unique NFC UID, profile, photo reference, derived status, active flag |
 | `officer_photos` | Immutable JPEG/PNG bytes, up to 1 MB per photo |
 | `attendance_logs` | UUID, officer, event time/action, source device, correction flags |
+| `pending_card_events` | Unknown physical-card events and retained receipts after admin linking; admin read only |
 | `day_config` | Legacy configuration retained for migration/reference |
 | `semester_schedules` | Semester weekly assignments, with immutable revisions |
 | `calendar_days` | Day types, notes, nullable assignment overrides, historical revision references |
@@ -100,6 +101,28 @@ its UUID, device token, and the project's publishable key. It has no direct
 SQL connection and no service-role key. Cloud writes for an upload batch are
 atomic. A replay acknowledges an existing event without overwriting manual
 corrections or soft-deleted entries.
+
+The CSV/card-linking migration preserves the legacy `officers.card_uid` primary
+key as an internal **profile key**. Existing foreign keys, schedule JSON and
+snapshots retain their identities. `officers.nfc_uid` is the actual physical UID,
+nullable and unique; existing profiles are backfilled from their original key.
+New profiles receive an `OFF` + UUID key. Use `nfcUid()` when displaying a card;
+never display that generated profile key as a physical NFC UID. Old archived
+snapshots without `nfc_uid` still use the original card value.
+
+Dashboard saves use `save_officer_profile`; NFC binding and pending promotion
+share the attendance advisory lock. A card cannot be stolen, changed or cleared
+after binding. Promoted events keep their IDs/devices/timestamps and receive
+`link_card` audit records. Pending rows remain as receipts so reader retries
+cannot recreate manually deleted or corrected events. Exact event-time matches
+are skipped on promotion; other overlaps remain visible for admin review.
+
+Reader wire payloads always use physical UIDs. `ingest_attendance` resolves them
+to profile keys, while `reader_context` maps known events back to physical UIDs
+and includes unlinked pending events for state reconciliation. Unknown-card
+capture is enabled only after `accept_unknown_cards: true` is received and
+cached; old servers retain the known-card-only behavior. Update/restart the
+reader together with this migration and dashboard upgrade.
 
 The dashboard uses Supabase Auth sessions and row-level security. Changing
 UI visibility alone never grants database access. Officer deletion deactivates

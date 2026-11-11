@@ -1,5 +1,6 @@
 import { addDateDays, dateKey, isDayClosed, toDate, weekday, formatTime, formatDuration } from './attendanceTime.js'
 import { buildAttendanceSessions } from './attendanceSessions.js'
+import { nfcUid } from './officerIdentity.js'
 
 export const DAY_TYPE_LABELS = { regular: 'Regular', no_classes: 'No Classes', optional: 'Optional' }
 export const emptyWeek = () => Object.fromEntries(Array.from({ length: 7 }, (_, day) => [day, { type: 'unscheduled', required_uids: [] }]))
@@ -49,7 +50,7 @@ export function reportDays(from, to, logs = []) {
   }
   return days
 }
-const matches = (row, query) => !query || [row.officer_name, row.card_uid, row.position, row.status, row.clockIn ? 'clock_in clock in' : '', row.clockOut ? 'clock_out clock out' : ''].some(v => String(v ?? '').toLowerCase().includes(query))
+const matches = (row, query) => !query || [row.officer_name, row.nfc_uid, row.card_uid, row.position, row.status, row.clockIn ? 'clock_in clock in' : '', row.clockOut ? 'clock_out clock out' : ''].some(v => String(v ?? '').toLowerCase().includes(query))
 export function analyzeAttendanceData({ logs = [], dateFrom, dateTo, context = {}, officerMap = {}, search = '', now = new Date() } = {}) {
   const sessions = buildAttendanceSessions(logs)
   const days = reportDays(dateFrom, dateTo, logs)
@@ -65,7 +66,7 @@ export function analyzeAttendanceData({ logs = [], dateFrom, dateTo, context = {
     const rows = sessions.filter(s => s.date === date).map(s => {
       const officer = roster[s.card_uid]
       const assigned = cfg.required_uids.includes(s.card_uid)
-      return { ...s, officer_name: s.officer_name || (officer ? `${officer.first_name} ${officer.last_name}` : s.card_uid), position: officer?.position ?? '—', isAssigned: assigned,
+      return { ...s, nfc_uid: nfcUid(officer,s.card_uid), officer_name: s.officer_name || (officer ? `${officer.first_name} ${officer.last_name}` : s.card_uid), position: officer?.position ?? '—', isAssigned: assigned,
         assignment: assigned ? 'Assigned Officer of the Day' : 'Voluntary / Not Required',
         status: !s.clockIn ? 'Needs Review' : s.clockOut ? 'Present' : closed ? 'Incomplete' : 'On Duty',
         clockInTime: formatTime(s.clockIn?.timestamp), clockOutTime: s.clockOut ? formatTime(s.clockOut.timestamp) : 'Not recorded',
@@ -74,7 +75,7 @@ export function analyzeAttendanceData({ logs = [], dateFrom, dateTo, context = {
     })
     for (const uid of cfg.required_uids.filter(uid => !attended.has(uid))) {
       const officer = roster[uid]
-      rows.push({ date, card_uid: uid, officer_name: officer ? `${officer.first_name} ${officer.last_name}` : uid, position: officer?.position ?? '—',
+      rows.push({ date, card_uid: uid, nfc_uid:nfcUid(officer,uid), officer_name: officer ? `${officer.first_name} ${officer.last_name}` : uid, position: officer?.position ?? '—',
         isAssigned: true, assignment: 'Assigned Officer of the Day', status: closed ? 'ABSENT' : 'Pending',
         clockInTime: '—', clockOutTime: '—', duration: '—', isAutoClosed: '—', remarks: closed ? 'Did not attend required duty' : 'Duty has not closed yet' })
     }

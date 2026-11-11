@@ -49,6 +49,7 @@ export function createDataAccess(getClient = client) {
       let q = getClient().from(table).select('*')
       if (table === 'officers' && !options.includeInactive) q = q.eq('active', true)
       if (table === 'attendance_logs') q = q.is('deleted_at', null)
+      for (const key of options.isNull ?? []) q = q.is(key, null)
       if (options.from) q = q.gte('timestamp', new Date(options.from).toISOString())
       if (options.to) q = q.lte('timestamp', new Date(options.to).toISOString())
       if (options.until) q = q.lt('timestamp', new Date(options.until).toISOString())
@@ -99,6 +100,10 @@ export function createDataAccess(getClient = client) {
   async function saveOfficer(uid, profile, { create = false, reactivate = false } = {}) {
     return check(await getClient().rpc('save_officer', { p_uid: uid, p_profile: wire(profile), p_create: create, p_reactivate: reactivate }))
   }
+  async function saveOfficerProfile(id, nfcUid, profile, { create = false, reactivate = false } = {}) {
+    return check(await getClient().rpc('save_officer_profile', { p_id: id ?? null, p_nfc_uid: nfcUid || null,
+      p_profile: wire(profile), p_create: create, p_reactivate: reactivate }))
+  }
   async function saveAttendance(id, payload, reason) {
     return check(await getClient().rpc('correct_attendance', { p_id: id ?? null, p_uid: payload.card_uid,
       p_type: payload.type, p_timestamp: wire(payload.timestamp), p_auto: payload.is_auto_closed, p_reason: reason }))
@@ -144,7 +149,7 @@ export function createDataAccess(getClient = client) {
   }
   const watchRecords = (table, options, onData, onError) => watch(table, () => listRecords(table, options), onData, onError)
   const watchRecord = (table, id, onData, onError) => watch(table, () => getRecord(table, id), onData, onError)
-  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
+  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveOfficerProfile, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
 }
 
-export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()
+export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveOfficerProfile, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()

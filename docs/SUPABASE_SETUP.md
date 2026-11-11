@@ -117,10 +117,13 @@ current dashboard and reader.
 
 After Step 2A, run
 [202611120001_attendance_csv_import.sql](../supabase/migrations/202611120001_attendance_csv_import.sql)
-once in a new Supabase SQL Editor query. This adds the admin-only audited batch
-import function. Follow [ATTENDANCE_IMPORT.md](ATTENDANCE_IMPORT.md) to review
-and import historical logbook CSVs. Existing projects only need this new file
-if the two earlier migrations already completed.
+once in a new Supabase SQL Editor query. This revised upgrade adds admin-only
+audited imports, officer profiles without NFC cards, and pending unknown-card
+attendance that admins can link later. Update and restart the Python reader
+while retaining its configuration and SQLite database. Follow
+[ATTENDANCE_IMPORT.md](ATTENDANCE_IMPORT.md) for imports and card linking.
+Existing projects only need this new file if the two earlier migrations already
+completed and this import migration has not been run yet.
 
 ## 3. Set up website sign-in accounts
 

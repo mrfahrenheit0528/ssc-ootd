@@ -68,6 +68,9 @@ class ReaderContext(threading.Thread):
     def is_enrolled(self, uid):
         return db.is_enrolled(self._conn, uid)
 
+    def accepts_unknown_cards(self):
+        return db.accepts_unknown_cards(self._conn)
+
     def stop(self):
         self._stop_event.set()
 

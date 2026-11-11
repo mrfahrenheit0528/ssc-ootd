@@ -5,6 +5,7 @@
 
 import Select from '../components/Select'
 import AttendanceImportModal from '../components/AttendanceImportModal'
+import { nfcUid } from '../utils/officerIdentity'
 import { useState, useEffect, useRef } from 'react'
 import { listRecords, deleteRecord, saveAttendance, importAttendanceCSV, recoverAttendance, Instant } from '../data'
 import { useAuth } from '../contexts/AuthContext'
@@ -95,7 +96,7 @@ function LogEditModal({ log, officers, onClose, onSave }) {
                 <option value="">— Select officer —</option>
                 {officers.map(o => (
                   <option key={o.card_uid} value={o.card_uid}>
-                    {o.first_name} {o.last_name} ({o.card_uid})
+                    {o.first_name} {o.last_name} ({nfcUid(o) || 'No card linked'})
                   </option>
                 ))}
               </Select>
@@ -236,7 +237,7 @@ export default function LogHistory() {
     }
   }
 
-  const sessions = buildAttendanceSessions(logs)
+  const sessions = buildAttendanceSessions(logs.map(log=>({...log,nfc_uid:nfcUid(officerMap[log.card_uid],log.card_uid)})))
   const filteredSessions = filterAttendanceSessions(sessions, search)
   const filtered = filteredSessions.flatMap(s => [s.clockIn,s.clockOut].filter(Boolean))
   const reportOptions = () => ({logs,dateFrom:loadedScope.from,dateTo:loadedScope.to,context,
@@ -447,7 +448,7 @@ export default function LogHistory() {
                       <SessionTimeCell log={session.clockIn} kind="in" isAdmin={isAdmin} onEdit={setModal} onDelete={handleDelete} />
                       <SessionTimeCell log={session.clockOut} kind="out" isAdmin={isAdmin} onEdit={setModal} onDelete={handleDelete} />
                       <td className="px-4 py-3 text-slate-400 text-sm font-mono">{formatDuration(session.clockIn?.timestamp, session.clockOut?.timestamp)}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs font-mono">{session.card_uid}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs font-mono">{nfcUid(officer,session.card_uid) || 'No card linked'}</td>
                     </tr>
                   )
                 })}

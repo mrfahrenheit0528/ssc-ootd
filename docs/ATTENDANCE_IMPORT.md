@@ -4,7 +4,7 @@ Admins can open **Log History > Import CSV** to review and import handwritten
 logbook sessions. The feature creates attendance entries only after the admin
 selects **Import sessions** in the preview. Selecting a file does not save it.
 
-## Install the import function once
+## Install the import and card-linking upgrade once
 
 If both existing migrations already ran, run only the new one:
 
@@ -12,11 +12,14 @@ If both existing migrations already ran, run only the new one:
    in VS Code and copy the whole file.
 2. In your existing Supabase project, open **SQL Editor > New query**.
 3. Paste the SQL and click **Run**. Wait for success.
-4. Refresh the dashboard and sign in as an admin.
+4. Update and restart the Python reader, keeping its configuration and SQLite
+   database. Refresh the dashboard and sign in as an admin.
 
-The migration adds one checked import function. It retains existing data and
-uses the existing attendance/audit tables. Do not rerun the earlier migrations.
-For a new empty project, apply all migrations in filename order.
+The revised migration adds checked imports, profiles with optional NFC cards,
+and pending attendance for unknown cards. Existing officer identities, schedules,
+photos, and attendance remain intact. If this file has not been run, use its
+current complete contents once. Do not rerun the earlier migrations. For a new
+empty project, apply all migrations in filename order.
 
 ## Prepare the CSV
 
@@ -27,40 +30,49 @@ visit, with these columns:
 |---|---|
 | `date` | Required `YYYY-MM-DD`, within the selected semester |
 | `name` | Officer name; optional if a valid `card_uid` is supplied |
+| `first_name`, `last_name` | Required when explicitly creating a missing officer profile in the preview |
+| `position` | Position for a new profile; defaults to `Officer` if omitted |
 | `time_in` | Required `HH:mm` / `HH:mm:ss` in 24-hour time, or `h:mm AM/PM` |
 | `time_out` | Required time after time-in, on the same school date |
-| `card_uid` | Optional existing officer UID; never invent a UID for a name |
+| `card_uid` | Optional existing profile key or actual linked card UID; leave blank for officers without cards |
 | `signature` | Optional source note, such as `see source photo`; not an electronic signature |
 | `source` | Optional photo/page/row reference, at most 200 characters |
 | `notes` | Optional transcription/review notes, at most 1000 characters |
 | `review_status` | Blank, `ready`, or `confirmed` for reviewed entries; any other value requires review |
 
 Photo transcriptions can also retain `raw_time_in` and `raw_time_out` columns.
-These appear beside the editable fields as a reference. `needs_review` rows
-must be corrected and marked reviewed, or excluded. Missing clock-outs are not
-invented or replaced with a 9 PM estimate. Unmarked handwritten 12-hour times
-need AM/PM confirmation. `09:00` in an authored CSV explicitly means 9 AM;
-an ambiguous handwritten `9:00` is not sufficient to choose AM automatically.
+These appear beside the editable fields as a reference. `needs_review` and
+`estimated` rows must be checked and marked reviewed, or excluded. Best-effort
+transcriptions can contain clearly documented AM/PM or handwriting estimates;
+they are never treated as confirmed automatically. Missing clock-outs are not
+invented or replaced with a 9 PM estimate. `09:00` in an authored CSV explicitly
+means 9 AM; confirm any inference recorded in the source notes.
 
 Names are compared without accents, punctuation, single-letter initials, or
 word order. Only a unique full-name match is automatic. Abbreviated, partial,
-ambiguous, and unmatched names require the admin to choose an enrolled officer.
+ambiguous names require the admin to choose the intended officer profile.
 Inactive officers remain available for historical imports. The directory PDF
-helps transcription but does not enroll officers or supply their card UIDs.
+helps transcription but does not supply card UIDs. For an unmatched name, choose
+**Create profile without a card** and check the separate first/last name fields.
+**Create missing profiles without cards** applies that choice to unmatched rows
+that already contain both name fields. This choice is explicit; choosing a file
+does not create profiles. Several rows for the same normalized name reuse one
+profile. Review similarly named people carefully before importing.
 
 ## Review and import
 
 1. Choose the correct semester. Archived semesters are allowed for historical
    attendance; importing does not reactivate the term or change its schedule.
 2. Choose a UTF-8 CSV under 1 MB, containing no more than 500 sessions.
-3. Wait for the enrolled officer list and existing attendance duplicate check.
+3. Wait for the officer profile list and existing attendance duplicate check.
 4. Review matched names, dates, original written times, and any flagged notes.
    Correct the fields in the preview, or uncheck **Include** for unresolved rows.
    **Select ready rows** excludes all currently invalid and duplicate rows.
 5. Confirm each flagged source with **Mark row reviewed** after verifying it.
-   Every included row must have complete, valid dates/times and an officer match.
+   Every included row must have complete, valid dates/times and either an officer
+   match or an explicitly selected new profile with first and last names.
 6. Enter an audit reason and click **Import sessions**.
-7. Read the imported/duplicate counts. Change Log History's date/semester filter
+7. Read the imported/duplicate and created-profile counts. Change Log History's date/semester filter
    if needed to view the imported historical entries.
 
 The server rechecks authorization, term dates, time order, future times, duplicate
@@ -75,6 +87,31 @@ Each new session creates a clock-in and clock-out with deterministic IDs,
 audit record containing actor, reason, semester and source metadata. Later
 corrections and deletion tombstones are preserved; reimporting the original CSV
 does not restore them. Imported sessions use the normal reporting/calendar rules.
+
+## Link cards and earlier unknown scans
+
+An officer profile can be saved with no NFC UID. In **Officer Roster**, open the
+add/link form, scan a card, then type in **Officer name**. Its suggestions contain
+existing active profiles without cards; select the imported profile to retain
+its history, or enter a new name. First/last name and position remain editable.
+For an existing profile without a card, its edit form also accepts a scan.
+
+Outside an admin enrollment window, an unknown card records normal clock-in/out
+events in the reader's durable queue. After upload, admins see these in
+**Officer Roster > Unlinked card scans**. Choose **Link card** and select or create
+the correct profile. Earlier scans are attached with their original times and
+event IDs. Paper entries, linked pending scans, and subsequent scans then count
+toward the same officer in Log History and Analytics. Unknown cards remain out
+of named attendance reports until linked. Pending clock-ins use the same 9 PM
+recovery rule as known cards.
+
+The reader must receive one successful context refresh from the updated server
+before accepting unknown cards; it caches that capability for offline use. During
+an enrollment window, taps only capture the UID for the form. A card can belong
+to only one profile, and an already linked card cannot be replaced in this flow.
+If paper and pending scans describe an overlapping visit, review the resulting
+entries with the existing correction tools; linking does not guess which source
+should win.
 
 Keep photos, directories, signatures, and extracted CSVs in the ignored
 `development/` folder. Public commits contain only code, schema, instructions,
