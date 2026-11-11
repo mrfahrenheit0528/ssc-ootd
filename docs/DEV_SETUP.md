@@ -184,9 +184,10 @@ remain available when the date returns to Regular, which can show Scheduled agai
 
 Both calendars use `.calendar-grid-enter` for a subtle 180 ms fade and 3 px reveal
 on month changes. Attendance Calendar keeps its grid visible and noninteractive
-while refreshing, then replays the reveal after the latest request completes.
-Only results matching the displayed month/semester appear in date cells. Reduced
-motion disables the reveal, dimming transition, and refresh-icon rotation.
+while refreshing. Its loaded day colors, schedule markers, and attendance details
+fade in together over 280 ms after the latest request completes; date numbers stay
+steady. Only results matching the displayed month/semester appear in date cells.
+Reduced motion disables the reveals, dimming transition, and refresh-icon rotation.
 
 Calendar date-cell borders and background accents identify day types consistently:
 Regular is green, No Classes is red, and Optional is blue. Use the shared
