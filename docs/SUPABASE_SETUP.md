@@ -465,6 +465,9 @@ unsuccessful, ignored, and clock-out mode. Keep that folder with the reader
 installation, enable the PC's audio output, and restart the daemon after updating.
 Sounds work offline; a successful cue confirms local saving rather than cloud
 upload. No SQL migration or new Python audio dependency is needed.
+The daemon also disables the ACR122U's automatic card-detection beep at startup
+and after reconnect, leaving the custom PC cues to report actual scan results.
+The optional `reader_buzzer_enabled` setting defaults to `false`.
 
 Run only one reader program at a time. If you previously set up an automatic
 Windows task for the reader, stop that instance before starting a development

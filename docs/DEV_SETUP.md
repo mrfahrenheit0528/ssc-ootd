@@ -202,6 +202,11 @@ See [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups
   Windows audio without extra dependencies. Existing reader configs enable
   them by default; optional `sounds_enabled` and `sounds_directory` settings
   control playback. Audio failures do not interrupt local recording or sync.
+- `reader_buzzer_enabled` defaults to `false`. The ACR122U mute command is sent
+  through a direct PC/SC handle with no card-protocol negotiation, and uses
+  `SCARD_LEAVE_CARD` when releasing the handle. USB/reader failures return to
+  enumeration so the detection buzzer setting is reapplied after reconnect.
+  Unsupported/rejected buzzer commands never block normal UID reading.
 - See the final sections of [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for known
   limitations and enhancements to schedule after the cloud migration is live.
 

@@ -13,5 +13,6 @@
   "db_path": "attendance-supabase.db",
   "log_level": "INFO",
   "sounds_enabled": true,
-  "sounds_directory": "sounds"
+  "sounds_directory": "sounds",
+  "reader_buzzer_enabled": false
 }

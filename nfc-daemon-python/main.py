@@ -154,7 +154,7 @@ def main() -> None:
     scheduler = AutoCloseScheduler(conn, cfg.auto_close_time)
     feedback = SoundFeedback(cfg.sounds_directory, enabled=cfg.sounds_enabled)
     sm = StateMachine(cfg, conn, lambda uid, result: _on_event(uid, result, feedback))
-    reader = NfcReader(on_read_error=lambda: feedback.play('unsuccessful'))
+    reader = NfcReader(on_read_error=lambda: feedback.play('unsuccessful'), buzzer_enabled=cfg.reader_buzzer_enabled)
     def shutdown(signum, frame):
         logger.info('Stopping NFC reader...')
         reader.stop()

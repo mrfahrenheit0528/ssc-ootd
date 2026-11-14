@@ -31,6 +31,7 @@ class AppConfig:
     log_level: str = "INFO"
     sounds_enabled: bool = True
     sounds_directory: str = "sounds"
+    reader_buzzer_enabled: bool = False
 
 
 def load_config(path: str = _CONFIG_PATH) -> AppConfig:
@@ -68,6 +69,7 @@ def load_config(path: str = _CONFIG_PATH) -> AppConfig:
         log_level=raw.get("log_level", "INFO"),
         sounds_enabled=raw.get("sounds_enabled", True),
         sounds_directory=raw.get("sounds_directory", "sounds"),
+        reader_buzzer_enabled=raw.get("reader_buzzer_enabled", False),
     )
 
     from uuid import UUID
@@ -94,6 +96,8 @@ def load_config(path: str = _CONFIG_PATH) -> AppConfig:
         raise ValueError('sounds_enabled must be true or false.')
     if not isinstance(cfg.sounds_directory, str) or not cfg.sounds_directory.strip():
         raise ValueError('sounds_directory must be a nonempty folder path.')
+    if not isinstance(cfg.reader_buzzer_enabled, bool):
+        raise ValueError('reader_buzzer_enabled must be true or false.')
     logger.info("Config loaded: clock_out_uid=%s  debounce=%ds  clock_out_window=%ds",
                 cfg.clock_out_tag_uid, cfg.debounce_seconds, cfg.clock_out_window_seconds)
     return cfg

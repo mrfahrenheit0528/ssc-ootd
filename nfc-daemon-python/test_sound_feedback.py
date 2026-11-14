@@ -202,9 +202,10 @@ class SoundConfigTests(unittest.TestCase):
             path.write_text(json.dumps(raw))
             self.assertTrue(load_config(str(path)).sounds_enabled)
             self.assertEqual(load_config(str(path)).sounds_directory, 'sounds')
+            self.assertFalse(load_config(str(path)).reader_buzzer_enabled)
             path.write_text(json.dumps({**raw,'sounds_enabled':False,'sounds_directory':'my-clips'}))
             self.assertFalse(load_config(str(path)).sounds_enabled)
-            for patch_value in [{'sounds_enabled':'false'},{'sounds_directory':''}]:
+            for patch_value in [{'sounds_enabled':'false'},{'sounds_directory':''},{'reader_buzzer_enabled':'false'}]:
                 path.write_text(json.dumps({**raw,**patch_value}))
                 with self.assertRaises(ValueError):
                     load_config(str(path))

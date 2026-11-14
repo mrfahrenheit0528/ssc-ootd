@@ -29,6 +29,7 @@ We strip the trailing status bytes (90 00) to get the raw UID.
 import logging
 import time
 from typing import Callable, Generator, Optional
+from reader_buzzer import supports_buzzer_control, set_detection_buzzer, set_buzzer_with_card
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class NfcReader:
             print(f"Tapped: {uid}")
     """
 
-    def __init__(self, reader_index: int = 0, on_read_error: Optional[Callable[[], None]] = None) -> None:
+    def __init__(self, reader_index: int = 0, on_read_error: Optional[Callable[[], None]] = None, buzzer_enabled: bool = False) -> None:
         """
         Args:
             reader_index: Index into the list of PC/SC readers.
@@ -104,6 +105,7 @@ class NfcReader:
         """
         self.reader_index = reader_index
         self._on_read_error = on_read_error
+        self.buzzer_enabled = buzzer_enabled
         self._running = False
 
     def stop(self) -> None:
@@ -124,7 +126,12 @@ class NfcReader:
         self._running = True
 
         while self._running:
-            available = list_readers()
+            try:
+                available = list_readers()
+            except Exception as exc:
+                logger.warning('Could not enumerate NFC readers (%s). Retrying in %ds.', exc, _RETRY_DELAY)
+                time.sleep(_RETRY_DELAY)
+                continue
             if not available:
                 logger.warning("No PC/SC readers found. Retrying in %ds…", _RETRY_DELAY)
                 time.sleep(_RETRY_DELAY)
@@ -134,12 +141,15 @@ class NfcReader:
             logger.info("Using NFC reader: %s", reader)
 
             try:
-                yield from self._poll_reader(reader)
+                fallback_buzzer = False
+                if supports_buzzer_control(reader):
+                    fallback_buzzer = not set_detection_buzzer(reader, enabled=self.buzzer_enabled)
+                yield from self._poll_reader(reader, fallback_buzzer=fallback_buzzer)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Reader error (%s). Reconnecting in %ds…", exc, _RETRY_DELAY)
                 time.sleep(_RETRY_DELAY)
 
-    def _poll_reader(self, reader) -> Generator[str, None, None]:
+    def _poll_reader(self, reader, fallback_buzzer=False) -> Generator[str, None, None]:
         """
         Inner loop for a single reader session.
 
@@ -154,6 +164,10 @@ class NfcReader:
             try:
                 connection = reader.createConnection()
                 connection.connect()
+
+                if fallback_buzzer:
+                    set_buzzer_with_card(connection, enabled=self.buzzer_enabled)
+                    fallback_buzzer = False
 
                 uid = _get_uid_from_card(connection)
                 connection.disconnect()
@@ -175,11 +189,15 @@ class NfcReader:
                 # Brief pause to avoid hammering the PC/SC daemon while a card is held
                 time.sleep(0.3)
 
-            except (CardConnectionException, NoCardException):
+            except NoCardException:
                 # Card was removed or not yet presented — this is normal
                 last_uid = None
                 read_failed = False
                 time.sleep(0.3)
+            except CardConnectionException:
+                # Re-enumerate after USB/PCSC errors, and reapply the buzzer
+                # preference to the next reader connection before reading cards.
+                raise
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Connect attempt failed (%s) — card likely absent.", exc)
                 last_uid = None
