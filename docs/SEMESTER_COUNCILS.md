@@ -7,6 +7,7 @@ Apply [202611150002_semester_councils.sql](../supabase/migrations/202611150002_s
 1. Open **Officer Roster → Manage council & positions** as an admin.
 2. Enter a **Term name**, such as its academic year.
 3. Set each position's name, directory group, and officer limit. Blank means unlimited; zero means no seats. Add/remove positions and use the arrows to change their directory order.
+   Type a directory group once, then choose it from the dropdown on other positions. You can also type a new group. Groups are saved with the positions and carried forward with the council.
 4. Select the officers serving this semester and choose a position for each. Deselect outgoing officers. Existing profiles, including previously inactive officers and their NFC cards, can be reused.
 5. **Save council**. The server rejects duplicate memberships, invalid positions, and counts exceeding a position's limit.
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { ArrowUp, ArrowDown, Plus, Trash2, Search } from 'lucide-react'
 import Select from './Select'
+import DirectoryGroupCombobox from './DirectoryGroupCombobox'
 import { councilIssues } from '../utils/semesterRoster'
 
 export default function CouncilRosterEditor({ profiles, members, onMembersChange, positions, onPositionsChange, name, onNameChange, disabled = false, onAddOfficer }) {
@@ -29,7 +30,7 @@ export default function CouncilRosterEditor({ profiles, members, onMembersChange
           const count = members.filter(member => member.position === position.name).length
           return <tr key={index} className="border-t border-white/5">
             <td className="p-2"><input aria-label={`Position ${index + 1} name`} className="input min-w-48" maxLength={150} value={position.name} disabled={disabled} onChange={event => updatePosition(index, { name: event.target.value })} /></td>
-            <td className="p-2"><input aria-label={`Position ${index + 1} group`} className="input min-w-36" maxLength={100} value={position.group || ''} disabled={disabled} onChange={event => updatePosition(index, { group: event.target.value })} /></td>
+            <td className="p-2"><DirectoryGroupCombobox label={`Position ${index + 1} group`} groups={positions.map(position=>position.group || '')} value={position.group || ''} disabled={disabled} onChange={group=>updatePosition(index,{group})} /></td>
             <td className="p-2"><input aria-label={`Position ${index + 1} limit`} type="number" min="0" max="99999" step="1" className="input w-24" placeholder="∞" value={position.capacity ?? ''} disabled={disabled} onChange={event => updatePosition(index, { capacity: event.target.value === '' ? null : Number(event.target.value) })} /></td>
             <td className={`p-2 text-center tabular-nums ${position.capacity !== null && count > position.capacity ? 'text-red-300' : 'text-slate-300'}`}>{count}</td>
             <td className="p-2"><div className="flex gap-1 justify-center">

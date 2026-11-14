@@ -51,6 +51,41 @@ test('saving state disables council changes',()=>{
   assert.equal(screen.getByRole('button',{name:'Add position'}).disabled,true)
 })
 
+test('a newly typed directory group is reusable from another position without retyping',async()=>{
+  const user=userEvent.setup()
+  render(<Editor />)
+  const first=screen.getByRole('combobox',{name:'Position 1 group'})
+  await user.clear(first);await user.type(first,'Representatives')
+  const second=screen.getByRole('combobox',{name:'Position 2 group'})
+  await user.click(second)
+  await user.click(screen.getByRole('option',{name:'Representatives'}))
+  assert.equal(second.value,'Representatives')
+  assert.equal(screen.queryByRole('listbox'),null)
+  await user.click(screen.getByRole('button',{name:'Add position'}))
+  await user.click(screen.getByRole('combobox',{name:'Position 3 group'}))
+  assert.equal(screen.getAllByRole('option',{name:'Representatives'}).length,1,'repeated group names appear once')
+  await user.click(screen.getByRole('option',{name:'Representatives'}))
+  assert.equal(screen.getByRole('combobox',{name:'Position 3 group'}).value,'Representatives')
+})
+
+test('directory groups support filtering, keyboard selection, dismissal, and saving locks',async()=>{
+  const user=userEvent.setup()
+  const {rerender}=render(<Editor />)
+  const second=screen.getByRole('combobox',{name:'Position 2 group'})
+  await user.clear(second);await user.type(second,'Exec')
+  await user.keyboard('{ArrowDown}{Enter}')
+  assert.equal(second.value,'Executive')
+  await user.clear(second);await user.keyboard('{ArrowDown}{Enter}')
+  assert.equal(second.value,'Executive','keyboard selection works from an empty group field')
+  await user.click(second);await user.keyboard('{Escape}')
+  assert.equal(screen.queryByRole('listbox'),null)
+  await user.click(second)
+  await user.click(screen.getByRole('heading',{name:'Positions & officer limits'}))
+  assert.equal(screen.queryByRole('listbox'),null,'clicking outside the field dismisses the portalled menu')
+  rerender(<Editor disabled />)
+  assert.ok(screen.getAllByRole('combobox',{name:/Position \d group/}).every(control=>control.disabled))
+})
+
 const term={id:'first',name:'First semester',start_date:'2026-01-01',end_date:'2026-06-01',status:'ended',council_name:'Existing Council',
   roster_managed:true,positions_configured:true,position_config:positions,officer_snapshot:[{...profiles[0],serving:true}]}
 const loadProfiles=async()=>profiles
