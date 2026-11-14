@@ -11,12 +11,12 @@ afterEach(cleanup)
 window.matchMedia = () => ({ matches: true })
 const scope = { from: '2026-11-09', to: '2026-11-10' }
 const officers = [{ card_uid: 'A', first_name: 'Ana', last_name: 'Cruz', position: 'President' }, { card_uid: 'B', first_name: 'Ben', last_name: 'Diaz', position: 'Secretary' }]
-function fixture() {
+function fixture(logs = [{ card_uid: 'B', type: 'CLOCK_IN', timestamp: '2026-11-09T10:00:00+08:00' }, { card_uid: 'B', type: 'CLOCK_OUT', timestamp: '2026-11-09T11:00:00+08:00' }]) {
   return buildAttendanceAnalytics({ dateFrom: scope.from, dateTo: scope.to, now: new Date('2026-11-11T10:00:00+08:00'), context: {
     officers, officerMap: Object.fromEntries(officers.map(o => [o.card_uid, o])),
     semesters: [{ id: 'term', start_date: '2026-11-01', status: 'active' }],
     scheduleVersions: [{ semester_id: 'term', revision: 1, schedule: { 1: { type: 'scheduled', required_uids: ['A'] }, 2: { type: 'scheduled', required_uids: ['A'] } } }],
-  }, logs: [{ card_uid: 'B', type: 'CLOCK_IN', timestamp: '2026-11-09T10:00:00+08:00' }, { card_uid: 'B', type: 'CLOCK_OUT', timestamp: '2026-11-09T11:00:00+08:00' }] })
+  }, logs })
 }
 
 function breakdownFixture(allPresent = false) {
@@ -138,5 +138,34 @@ test('pending duties and volunteers alone cannot populate the absences list',asy
   await user.click(screen.getByRole('combobox',{name:'Sort officers'}))
   await user.click(screen.getByRole('option',{name:'Most absences'}))
   assert.ok(screen.getByText('No missed required duties for this period.'))
+  assert.equal(screen.getByRole('button',{name:'Export CSV'}).disabled,true)
+})
+
+test('recorded-hours view and export exclude officers with zero recorded time',async t=>{
+  const user=userEvent.setup()
+  let blob
+  t.mock.method(URL,'createObjectURL',value=>{blob=value;return 'blob:hours'})
+  t.mock.method(URL,'revokeObjectURL',()=>{})
+  t.mock.method(window.HTMLAnchorElement.prototype,'click',()=>{})
+  render(<AttendanceAnalytics data={breakdownFixture()} scope={scope} />)
+  await user.click(screen.getByRole('combobox',{name:'Sort officers'}))
+  await user.click(screen.getByRole('option',{name:'Most recorded hours'}))
+  const table=screen.getByRole('table')
+  assert.ok(within(table).getByText('Ana Cruz'))
+  assert.ok(within(table).getByText('Ben Diaz'))
+  for(const name of ['Cara Reyes','Dan Vega','Eve Santos']) assert.equal(within(table).queryByText(name),null)
+  await user.click(screen.getByRole('button',{name:'Export CSV'}))
+  const csv=await blob.text()
+  for(const name of ['Ana Cruz','Ben Diaz']) assert.ok(csv.includes(name))
+  for(const name of ['Cara Reyes','Dan Vega','Eve Santos']) assert.equal(csv.includes(name),false)
+})
+
+test('a clock-in without a completed duration does not appear in recorded hours',async()=>{
+  const user=userEvent.setup()
+  const data=fixture([{card_uid:'B',type:'CLOCK_IN',timestamp:'2026-11-09T10:00:00+08:00'}])
+  render(<AttendanceAnalytics data={data} scope={scope} />)
+  await user.click(screen.getByRole('combobox',{name:'Sort officers'}))
+  await user.click(screen.getByRole('option',{name:'Most recorded hours'}))
+  assert.ok(screen.getByText('No recorded hours for this period.'))
   assert.equal(screen.getByRole('button',{name:'Export CSV'}).disabled,true)
 })

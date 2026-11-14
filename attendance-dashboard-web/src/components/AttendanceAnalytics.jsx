@@ -100,7 +100,7 @@ function OfficerComparison({ officers, scope }) {
   const [expanded, setExpanded] = useState(null)
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return officers.filter(o => sort === 'rate' ? o.attendedAssignedDays > 0 || o.voluntaryDays > 0 : sort === 'absent' ? o.absentDays > 0 : true)
+    return officers.filter(o => sort === 'rate' ? o.attendedAssignedDays > 0 || o.voluntaryDays > 0 : sort === 'absent' ? o.absentDays > 0 : o.seconds > 0)
       .filter(o => [o.name, o.nfcUid ?? '', o.position].some(v => v.toLowerCase().includes(query)))
       .sort((a, b) => (sort === 'rate' ? (b.rate ?? -1) - (a.rate ?? -1) : sort === 'absent' ? b.absentDays - a.absentDays : sort === 'hours' ? b.seconds - a.seconds : 0) || a.name.localeCompare(b.name))
   }, [officers, search, sort])
@@ -127,12 +127,13 @@ function OfficerComparison({ officers, scope }) {
       </div>
       {sort === 'rate' && <p className="text-xs text-slate-500">Only officers who attended assigned duties or volunteered are shown. Volunteers without required duties have no attendance percentage.</p>}
       {sort === 'absent' && <p className="text-xs text-slate-500">Only officers who missed required duties are shown. Duties still in progress are excluded.</p>}
+      {sort === 'hours' && <p className="text-xs text-slate-500">Only officers with recorded time from completed visits in the selected period are shown.</p>}
     </div>
     <div className="overflow-x-auto"><table className="w-full text-sm text-left whitespace-nowrap">
       <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-slate-400"><tr>{['Officer', 'Finalized attendance', 'Absent', 'Pending', 'Voluntary days', 'Recorded hours'].map(title => <th key={title} scope="col" className="px-5 py-3 font-semibold">{title}</th>)}</tr></thead>
       <tbody className="divide-y divide-white/5">{filtered.slice(currentPage * 10, currentPage * 10 + 10).map(officer => <OfficerRow key={officer.uid} officer={officer} expanded={expanded === officer.uid} onToggle={() => setExpanded(expanded === officer.uid ? null : officer.uid)} />)}</tbody>
     </table></div>
-    {!filtered.length && <p className="text-center text-sm text-slate-500 p-10">{!officers.length ? 'No officers or assignments found for this period.' : search.trim() ? 'No officers match this view and search.' : sort === 'absent' ? 'No missed required duties for this period.' : 'No assigned attendees or volunteers for this period.'}</p>}
+    {!filtered.length && <p className="text-center text-sm text-slate-500 p-10">{!officers.length ? 'No officers or assignments found for this period.' : search.trim() ? 'No officers match this view and search.' : sort === 'absent' ? 'No missed required duties for this period.' : sort === 'hours' ? 'No recorded hours for this period.' : 'No assigned attendees or volunteers for this period.'}</p>}
     <div className="p-4 flex justify-between gap-3 flex-wrap items-center border-t border-white/5 text-xs text-slate-400"><p>{filtered.length} officers · This view and search affect only this table and its export.</p>
       {pageCount > 1 && <div className="flex items-center gap-3"><button className="btn-secondary" disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>Previous</button><span>{currentPage + 1} / {pageCount}</span><button className="btn-secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div>}</div>
   </section>

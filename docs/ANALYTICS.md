@@ -26,7 +26,9 @@ rate** view shows assigned attendees and volunteers; officers with only absences
 pending duties or no attendance are excluded. Volunteers without required duties
 retain a blank required-attendance percentage. **Most absences** shows only
 officers with missed required duties on finalized dates; pending duties do not
-count as absences. **Most recorded hours** sorts the full officer list by time.
+count as absences. **Most recorded hours** shows only officers with more than
+zero recorded duration from completed visits in the selected day or date range,
+sorted by time. Officers with only unpaired clock-ins/outs are excluded.
 View selection and search affect only the table and its CSV export; the overview
 always represents the whole period.
 The export contains all matching officers, including those on other table pages.
