@@ -67,8 +67,9 @@ files on every reader PC before restarting those readers.
 
 1. Open **Semesters**. Create or activate the semester you intend to configure.
 2. Open **Day Config** and choose that semester. Open the **Weekly recurring assignments** tab.
-3. In the weekly table, choose **Scheduled** or **Unscheduled** at the top of
-   each weekday column (Monday through Sunday).
+3. The weekly schedule opens **Locked**. Click **Edit schedule** to unlock
+   checkboxes, day types and bulk selection. Choose **Scheduled** or
+   **Unscheduled** at the top of each weekday column (Monday through Sunday).
 4. Tick the officers required in each Scheduled column. Rows follow the
    directory's position sequence: executives, college/campus representatives,
    assistants, then committee directors. Within a position, names sort A–Z.
@@ -80,7 +81,10 @@ files on every reader PC before restarting those readers.
    future dates. An amber message identifies unsaved changes. Earlier dates
    retain their saved assignments; No Classes, Optional, and custom date lists
    still take precedence.
-6. Click **Save semester schedule** in either tab to apply the changes. Save
+6. Click **Save changes** in either tab to apply the changes and lock the
+   schedule again. **Cancel** restores the saved assignments and locks editing
+   without saving. Reverting every change clears the Unsaved badge automatically;
+   Save changes is disabled when the schedule matches the saved version. Save
    weekly edits before opening an individual date so those edits are retained.
 
 There is no Effective From date. The schedule belongs to the selected semester.

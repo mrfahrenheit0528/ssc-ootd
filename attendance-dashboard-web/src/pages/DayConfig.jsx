@@ -4,7 +4,7 @@ import WeeklyAssignmentGrid from '../components/WeeklyAssignmentGrid'
 import DirectoryOfficerPicker from '../components/DirectoryOfficerPicker'
 import { useState, useEffect, useRef } from 'react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, parseISO } from 'date-fns'
-import { Save, Settings, ChevronLeft, ChevronRight, X, CalendarDays, CalendarRange } from 'lucide-react'
+import { Save, Settings, ChevronLeft, ChevronRight, X, CalendarDays, CalendarRange, Lock, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { saveWeek, saveCalendarDay } from '../data'
 import { useSemester } from '../contexts/SemesterContext'
@@ -13,6 +13,7 @@ import { emptyWeek, resolveDay, resolveDayWithDraft, DAY_TYPE_LABELS } from '../
 import DayTypeLegend from '../components/DayTypeLegend'
 import { ScheduleIndicator, ScheduleLegend } from '../components/ScheduleIndicator'
 import { dateKey } from '../utils/attendanceTime'
+import { useWeeklyScheduleDraft } from '../hooks/useWeeklyScheduleDraft'
 
 const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 function DayEditor({ day, context, semesterId, officers, onClose, onSaved }) {
@@ -58,14 +59,13 @@ export default function DayConfig() {
   const [semesterId, setSemesterId] = useState('')
   const [activeTab, setActiveTab] = useState('weekly')
   const [context, setContext] = useState(null)
-  const [schedule, setSchedule] = useState(emptyWeek)
   const [month, setMonth] = useState(() => startOfMonth(parseISO(dateKey())))
-  const [dirty,setDirty] = useState(false)
   const [selectedDay, setSelectedDay] = useState(null)
   const [loading, setLoading] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState('')
   const generation = useRef(0)
   const term = semesters.find(s => s.id === semesterId)
   const readOnly = term?.status !== 'active'
+  const { schedule, editing, dirty, resetSchedule, beginEditing, cancelEditing, updateDay } = useWeeklyScheduleDraft({ readOnly, saving })
   useEffect(() => { if (!semesterId && activeSemester) setSemesterId(activeSemester.id) }, [activeSemester,semesterId])
   const load = async () => {
     const current = ++generation.current
@@ -76,7 +76,7 @@ export default function DayConfig() {
       if (current !== generation.current) return
       setContext(next)
       const latest = next.scheduleVersions.filter(s => s.semester_id === semesterId).sort((a,b) => b.revision-a.revision)[0]
-      setSchedule(latest?.schedule ?? emptyWeek());setDirty(false)
+      resetSchedule(latest?.schedule ?? emptyWeek())
     } catch (e) { if (current === generation.current) setError(e.message) }
     finally { if (current === generation.current) setLoading(false) }
   }
@@ -88,11 +88,11 @@ export default function DayConfig() {
     if (selected) setMonth(startOfMonth(parseISO(selected.start_date)))
   }
   const save = async () => {
+    if (readOnly || saving || !editing || !dirty) return
     setSaving(true)
-    try { await saveWeek(semesterId,schedule); await load(); toast.success('Semester schedule saved. Earlier days retain their previous assignments.') }
+    try { await saveWeek(semesterId,schedule); resetSchedule(schedule); await load(); toast.success('Semester schedule saved and locked. Earlier days retain their previous assignments.') }
     catch (e) { toast.error(e.message) } finally { setSaving(false) }
   }
-  const updateDay = (day, patch) => {setDirty(true);setSchedule(old => ({ ...old, [day]: { ...old[day], ...patch } }))}
   const days = eachDayOfInterval({start:startOfMonth(month),end:endOfMonth(month)})
   return <div className="space-y-6 max-w-5xl animate-slide-up">
     <h1 className="text-2xl font-bold flex gap-3"><Settings />Day Configuration</h1>
@@ -105,10 +105,15 @@ export default function DayConfig() {
       {readOnly && <p className="text-amber-300 text-sm">Archived semester. An admin must reactivate it before changing its schedule.</p>}
       <Tabs label="Day configuration sections" value={activeTab} onValueChange={setActiveTab} tabs={[
         { value:'weekly', label:'Weekly recurring assignments', icon:CalendarRange, badge:dirty ? 'Unsaved' : null, content:(
-      <section className="card p-5 space-y-4"><h2 className="font-semibold">Weekly recurring assignments</h2>
+      <section className="card p-5 space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Weekly recurring assignments</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {!editing && <span className="inline-flex items-center gap-1.5 text-xs text-slate-400"><Lock className="w-3.5 h-3.5" />Locked</span>}
+          {!readOnly && (editing ? <><button className="btn-secondary" disabled={saving} onClick={cancelEditing}>Cancel</button><button className="btn-primary" disabled={saving || !dirty} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save changes'}</button></> : <button className="btn-primary" disabled={saving} onClick={beginEditing}><Pencil className="w-4 h-4" />Edit schedule</button>)}
+        </div>
+      </div>
         <p className="text-xs text-slate-400">Applies to {term?.name}. Scheduled days require the selected officers; Unscheduled days have no recurring duty. Revisions are retained automatically.</p>
-        <WeeklyAssignmentGrid officers={context.officers} schedule={schedule} disabled={readOnly || saving} onChange={updateDay} />
-        <button className="btn-primary" disabled={readOnly || saving} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save semester schedule'}</button>
+        {!readOnly && <p role="status" className={`rounded-lg px-3 py-2 text-xs ${editing ? 'bg-brand-500/10 text-brand-200' : 'bg-white/5 text-slate-400'}`}>{editing ? 'Editing is unlocked. Save your changes to lock the schedule, or cancel to restore the saved assignments.' : 'The saved schedule is locked to prevent accidental ticks. Choose Edit schedule to make changes.'}</p>}
+        <WeeklyAssignmentGrid officers={context.officers} schedule={schedule} disabled={readOnly || saving || !editing} onChange={updateDay} />
       </section>
         ) },
         { value:'calendar', label:'Calendar day types', icon:CalendarDays, content:(
@@ -116,7 +121,7 @@ export default function DayConfig() {
         <p className="text-xs text-slate-400">Weekly edits appear here immediately for today and future dates. Earlier dates keep their saved assignments. Save weekly changes before editing an individual date.</p>
         {dirty && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-300 animate-fade-in">
           <span>Preview of unsaved weekly changes. Click Save to apply them.</span>
-          <button className="btn-primary" disabled={saving} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save semester schedule'}</button>
+          <div className="flex gap-2"><button className="btn-secondary" disabled={saving} onClick={cancelEditing}>Cancel changes</button><button className="btn-primary" disabled={readOnly || saving || !editing} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save changes'}</button></div>
         </div>}
         <div className="space-y-2"><DayTypeLegend /><ScheduleLegend /></div>
         <div key={`${semesterId}|${format(month,'yyyy-MM')}`} className="calendar-grid calendar-grid-enter grid grid-cols-7 gap-1 sm:gap-2">{WEEKDAYS.map(d => <div key={d} className="text-xs text-center text-slate-400">{d.slice(0,3)}</div>)}{Array.from({length:days[0].getDay()},(_,i) => <div key={`pad-${i}`} />)}{days.map(day => {

@@ -51,7 +51,8 @@ export default function WeeklyAssignmentGrid({ officers, schedule, disabled = fa
             <th scope="row" className="sticky left-0 z-10 bg-slate-900 px-4 py-3 text-left font-normal"><span className="block text-slate-200">{officer.first_name} {officer.last_name}{officer.active === false && <span className="ml-1 text-xs text-amber-300">(Inactive)</span>}</span><span className="block text-xs text-slate-500 mt-0.5">{officer.position || 'Officer'}</span></th>
             {ASSIGNMENT_DAYS.map(({ day, label }) => {
               const entry = schedule[day] ?? blank, checked = entry.required_uids.includes(officer.card_uid)
-              return <td key={day} className={`border-l border-white/5 text-center ${entry.type === 'unscheduled' ? 'bg-slate-950/30' : checked ? 'bg-brand-500/10' : ''}`}><label className="flex min-h-14 w-full items-center justify-center cursor-pointer"><input type="checkbox" className="h-4 w-4 accent-indigo-500 disabled:opacity-25" aria-label={`Assign ${officer.first_name} ${officer.last_name} on ${label}`} checked={checked} disabled={disabled || entry.type !== 'scheduled' || (officer.active === false && !checked)} onChange={() => toggle(day, officer.card_uid)} /></label></td>
+              const locked = disabled || entry.type !== 'scheduled' || (officer.active === false && !checked)
+              return <td key={day} className={`border-l border-white/5 text-center ${entry.type === 'unscheduled' ? 'bg-slate-950/30' : checked ? 'bg-brand-500/10' : ''}`}><label className={`flex min-h-14 w-full items-center justify-center ${locked ? 'cursor-default' : 'cursor-pointer'}`}><input type="checkbox" className={`h-4 w-4 accent-indigo-500 ${checked ? 'disabled:opacity-90' : 'disabled:opacity-25'}`} aria-label={`Assign ${officer.first_name} ${officer.last_name} on ${label}`} checked={checked} disabled={locked} onChange={() => toggle(day, officer.card_uid)} /></label></td>
             })}
           </tr>)}
         </tbody>)}
