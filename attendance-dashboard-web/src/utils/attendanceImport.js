@@ -1,7 +1,7 @@
 import { dateKey, toDate } from './attendanceTime.js'
 import { nfcUid } from './officerIdentity.js'
 
-export const IMPORT_HEADERS = ['date', 'name', 'first_name', 'last_name', 'position', 'time_in', 'time_out', 'card_uid', 'signature', 'source', 'notes', 'review_status']
+export const IMPORT_HEADERS = ['date', 'firstname', 'lastname', 'position', 'time_in', 'time_out']
 
 // Strict quoted CSV parsing: never silently shift a name or time into another column.
 export function parseAttendanceCSV(text) {
@@ -28,27 +28,30 @@ export function parseAttendanceCSV(text) {
   if (field || record.length || endedQuote) line()
   if (records.length < 2) throw new Error('CSV needs a header and at least one attendance row.')
   if (records.length > 501) throw new Error('Import at most 500 rows per file.')
-  const aliases = { officer: 'name', officer_name: 'name', full_name: 'name', uid: 'card_uid', timein: 'time_in', timeout: 'time_out' }
+  const aliases = { firstname: 'first_name', lastname: 'last_name', officer: 'name', officer_name: 'name', full_name: 'name', uid: 'card_uid', timein: 'time_in', timeout: 'time_out' }
   const headers = records.shift().map(value => {
     const key = value.trim().toLowerCase().replace(/[\s-]+/g, '_')
     return aliases[key] ?? key
   })
   if (new Set(headers).size !== headers.length || headers.some(h => !h)) throw new Error('CSV headers must be unique and nonempty.')
-  if (!['date', 'time_in', 'time_out'].every(h => headers.includes(h)) || !headers.some(h => ['name', 'card_uid'].includes(h))) {
-    throw new Error('Required columns: date, name (or card_uid), time_in, time_out. Download the import template.')
+  const hasIdentity = ['first_name', 'last_name'].every(h => headers.includes(h)) || headers.some(h => ['name', 'card_uid'].includes(h))
+  if (!['date', 'time_in', 'time_out'].every(h => headers.includes(h)) || !hasIdentity) {
+    throw new Error('Use these columns: date, firstname, lastname, position, time_in, time_out. Download the import template.')
   }
   return records.map((values, index) => {
     if (values.length !== headers.length) throw new Error(`CSV row ${index + 2} has ${values.length} columns; expected ${headers.length}.`)
-    return { ...Object.fromEntries(headers.map((key, i) => [key, values[i].trim()])), rowNumber: index + 2, included: true }
+    const row = Object.fromEntries(headers.map((key, i) => [key, values[i].trim()]))
+    return { ...row, name: importOfficerName(row), rowNumber: index + 2, included: true }
   })
 }
 
 export const normalizeOfficerName = name => String(name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(token => token.length > 1).sort().join(' ')
 export const officerName = officer => `${officer.first_name} ${officer.last_name}`.trim()
+const importOfficerName = row => row.name || [row.first_name, row.last_name].filter(Boolean).join(' ')
 export function matchOfficer(row, officers) {
   if (row.card_uid) return officers.find(o => o.card_uid === row.card_uid.trim().toUpperCase() || nfcUid(o) === row.card_uid.trim().toUpperCase()) ?? null
-  const normalized = normalizeOfficerName(row.name)
+  const normalized = normalizeOfficerName(importOfficerName(row))
   if (!normalized) return null
   const matches = officers.filter(o => normalizeOfficerName(officerName(o)) === normalized)
   return matches.length === 1 ? matches[0] : null

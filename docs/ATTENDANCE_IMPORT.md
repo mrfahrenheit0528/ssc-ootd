@@ -29,24 +29,33 @@ visit, with these columns:
 | Column | Meaning |
 |---|---|
 | `date` | Required `YYYY-MM-DD`, within the selected semester |
-| `name` | Officer name; optional if a valid `card_uid` is supplied |
-| `first_name`, `last_name` | Required when explicitly creating a missing officer profile in the preview |
+| `firstname` | Officer's first name(s), including middle initials if used |
+| `lastname` | Officer's last name, including suffixes if used |
 | `position` | Position for a new profile; defaults to `Officer` if omitted |
 | `time_in` | Required `HH:mm` / `HH:mm:ss` in 24-hour time, or `h:mm AM/PM` |
 | `time_out` | Required time after time-in, on the same school date |
-| `card_uid` | Optional existing profile key or actual linked card UID; leave blank for officers without cards |
-| `signature` | Optional source note, such as `see source photo`; not an electronic signature |
-| `source` | Optional photo/page/row reference, at most 200 characters |
-| `notes` | Optional transcription/review notes, at most 1000 characters |
-| `review_status` | Blank, `ready`, or `confirmed` for reviewed entries; any other value requires review |
 
-Photo transcriptions can also retain `raw_time_in` and `raw_time_out` columns.
-These appear beside the editable fields as a reference. `needs_review` and
-`estimated` rows must be checked and marked reviewed, or excluded. Best-effort
-transcriptions can contain clearly documented AM/PM or handwriting estimates;
-they are never treated as confirmed automatically. Missing clock-outs are not
-invented or replaced with a 9 PM estimate. `09:00` in an authored CSV explicitly
-means 9 AM; confirm any inference recorded in the source notes.
+```csv
+date,firstname,lastname,position,time_in,time_out
+2020-09-01,Ana Maria,Cruz,Secretary,09:00,17:00
+```
+
+These are the only columns in the downloaded template. A combined name, NFC
+UID, signature, source, and review-status column are not needed. The preview
+combines first/last names to find the existing officer; the position is used
+when explicitly creating a missing profile and does not overwrite a matched
+officer's profile. Imports still record the filename, CSV row, actor and reason
+internally for auditing.
+
+Keep uncertain handwriting readings and source references in separate
+transcription notes. The six-column CSV has no embedded review flags: check
+those notes and the originals before including estimated entries. Missing
+clock-outs must be completed or excluded; they are not replaced with a 9 PM
+estimate. `09:00` explicitly means 9 AM.
+
+Older files using `first_name` / `last_name`, a combined `name`, or a `card_uid`
+still work. Optional source/review fields in older files retain their validation
+and review behavior.
 
 Names are compared without accents, punctuation, single-letter initials, or
 word order. Only a unique full-name match is automatic. Abbreviated, partial,
@@ -65,7 +74,7 @@ profile. Review similarly named people carefully before importing.
    attendance; importing does not reactivate the term or change its schedule.
 2. Choose a UTF-8 CSV under 1 MB, containing no more than 500 sessions.
 3. Wait for the officer profile list and existing attendance duplicate check.
-4. Review matched names, dates, original written times, and any flagged notes.
+4. Review matched names, dates, times, and any separate transcription notes.
    Correct the fields in the preview, or uncheck **Include** for unresolved rows.
    **Select ready rows** excludes all currently invalid and duplicate rows.
 5. Confirm each flagged source with **Mark row reviewed** after verifying it.

@@ -78,7 +78,7 @@ test('server rejection keeps the review available for a safe retry', async () =>
 
 test('an unmatched CSV name can create a profile without a card after explicit selection', async () => {
   const user = userEvent.setup(), calls = setup()
-  await upload(user, 'date,name,first_name,last_name,position,time_in,time_out,review_status\n2020-09-01,Maria Reyes,Maria,Reyes,Secretary,09:00,17:00,ready')
+  await upload(user, 'date,firstname,lastname,position,time_in,time_out\n2020-09-01,Maria,Reyes,Secretary,09:00,17:00')
   assert.equal(screen.getByRole('button', { name: 'Import 0 sessions' }).disabled, true)
   await user.click(screen.getByRole('button', { name: 'Create missing profiles without cards' }))
   const button = screen.getByRole('button', { name: 'Import 1 sessions' })

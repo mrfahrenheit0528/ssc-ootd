@@ -1,10 +1,26 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseAttendanceCSV, parseImportTime, previewAttendanceImport, matchOfficer } from './attendanceImport.js'
+import { IMPORT_HEADERS, parseAttendanceCSV, parseImportTime, previewAttendanceImport, matchOfficer } from './attendanceImport.js'
 const officers = [{ card_uid: 'AAAA1111', first_name: 'Ana María', last_name: 'Cruz', active: false }, { card_uid: 'BBBB2222', first_name: 'Ben', last_name: 'Diaz' }]
 const semester = { id: 'term', start_date: '2020-01-01', end_date: '2020-12-31' }
 const row = { name: 'Cruz, Ana Maria', date: '2020-09-01', time_in: '9:00 AM', time_out: '5:00 PM', included: true }
 const preview = (rows, options = {}) => previewAttendanceImport(rows, { officers, semester, now: new Date('2026-11-12T12:00:00+08:00'), ...options })
+
+test('the six-column format matches existing officers and creates missing cardless profiles', () => {
+  assert.deepEqual(IMPORT_HEADERS, ['date', 'firstname', 'lastname', 'position', 'time_in', 'time_out'])
+  const rows = parseAttendanceCSV('date,firstname,lastname,position,time_in,time_out\n2020-09-01,Ana Maria,Cruz,Secretary,09:00,17:00\n2020-09-02,Maria,Reyes,Officer,10:00,16:00')
+  assert.equal(rows[0].name, 'Ana Maria Cruz')
+  assert.equal(preview(rows)[0].payload.card_uid, 'AAAA1111')
+  const created = preview([{ ...rows[1], create_profile: true }])[0]
+  assert.deepEqual(created.issues, [])
+  assert.equal(created.payload.first_name, 'Maria')
+  assert.equal(created.payload.last_name, 'Reyes')
+  assert.equal(created.payload.create_profile, true)
+  const legacy = parseAttendanceCSV('date,first_name,last_name,position,time_in,time_out\n2020-09-01,Ana Maria,Cruz,Secretary,09:00,17:00')
+  assert.equal(matchOfficer(legacy[0], officers).card_uid, 'AAAA1111')
+  assert.throws(() => parseAttendanceCSV('date,firstname,position,time_in,time_out\n2020-09-01,Ana,Officer,09:00,17:00'))
+  assert.throws(() => parseAttendanceCSV('date,firstname,first_name,lastname,time_in,time_out\n2020-09-01,Ana,Ana,Cruz,09:00,17:00'))
+})
 
 test('quoted CSV supports BOM, commas, escaped quotes and multiline source notes', () => {
   const rows = parseAttendanceCSV('\uFEFFdate,name,time-in,time-out,notes\r\n2020-09-01,"Cruz, Ana María",09:00,17:00,"Page ""1""\nReviewed"\r\n')
