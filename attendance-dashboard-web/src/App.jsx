@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Monitor, Users, History, Zap, CalendarDays, Settings, LogOut, ShieldCheck, GraduationCap, Menu, X, BarChart3 } from 'lucide-react'
+import { Monitor, Users, History, CalendarDays, Settings, LogOut, ShieldCheck, GraduationCap, Menu, X, BarChart3 } from 'lucide-react'
+import councilLogo from './assets/ssc-logo.png'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { SemesterProvider, useSemester } from './contexts/SemesterContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -42,9 +43,7 @@ function Sidebar({open,onClose}) {
       <button className="md:hidden absolute right-2 top-2 p-2" aria-label="Close navigation" onClick={onClose}><X className="w-4 h-4" /></button>
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-6 border-b border-white/10">
-        <div className="w-9 h-9 rounded-xl bg-brand-600/30 border border-brand-500/40 flex items-center justify-center">
-          <Zap className="w-5 h-5 text-brand-400" />
-        </div>
+        <img src={councilLogo} alt="CSPC Supreme Student Council logo" width={1437} height={1570} className="w-12 h-14 shrink-0 object-contain" />
         <div>
           <p className="text-sm font-semibold text-white leading-tight">SSC Attendance</p>
           <p className="text-xs text-slate-500">Council Dashboard</p>
