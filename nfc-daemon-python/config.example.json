@@ -11,5 +11,7 @@
   "clock_out_window_seconds": 15,
   "auto_close_time": "21:00",
   "db_path": "attendance-supabase.db",
-  "log_level": "INFO"
+  "log_level": "INFO",
+  "sounds_enabled": true,
+  "sounds_directory": "sounds"
 }

@@ -73,6 +73,7 @@ class StateMachine:
         self._mode = Mode.DEFAULT
         self._lock = threading.Lock()
         self._timer: Optional[threading.Timer] = None
+        self._timer_generation = 0
 
         # Debounce tracker: {uid: last_tap_epoch_float}
         self._last_tap_times: dict[str, float] = {}
@@ -120,6 +121,12 @@ class StateMachine:
         """Return current mode (thread-safe)."""
         with self._lock:
             return self._mode
+
+    def stop(self) -> None:
+        """Cancel clock-out feedback before the reader shuts down."""
+        with self._lock:
+            self._cancel_timer()
+            self._mode = Mode.DEFAULT
 
     # ------------------------------------------------------------------
     # Internal handlers
@@ -186,26 +193,30 @@ class StateMachine:
         self._timer = threading.Timer(
             self._cfg.clock_out_window_seconds,
             self._on_clock_out_timeout,
+            args=(self._timer_generation,),
         )
         self._timer.daemon = True
         self._timer.start()
 
     def _cancel_timer(self) -> None:
         """Cancel any pending clock-out timer."""
+        self._timer_generation += 1
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
 
-    def _on_clock_out_timeout(self) -> None:
+    def _on_clock_out_timeout(self, generation=None) -> None:
         """Called on a Timer thread when the clock-out window expires."""
         with self._lock:
-            if self._mode == Mode.WAITING_FOR_CLOCK_OUT:
+            if self._mode == Mode.WAITING_FOR_CLOCK_OUT and (generation is None or generation == self._timer_generation):
                 logger.info(
                     "Clock-out window expired (%ds). Reverting to DEFAULT mode.",
                     self._cfg.clock_out_window_seconds,
                 )
                 self._mode = Mode.DEFAULT
                 self._timer = None
+            else:
+                return
         self._emit("__timeout__", TapResult.CLOCK_OUT_MODE_TIMEOUT)
 
     # ------------------------------------------------------------------

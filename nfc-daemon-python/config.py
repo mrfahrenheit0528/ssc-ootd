@@ -29,6 +29,8 @@ class AppConfig:
     auto_close_time: str = "21:00"
     db_path: str = "attendance-supabase.db"
     log_level: str = "INFO"
+    sounds_enabled: bool = True
+    sounds_directory: str = "sounds"
 
 
 def load_config(path: str = _CONFIG_PATH) -> AppConfig:
@@ -64,6 +66,8 @@ def load_config(path: str = _CONFIG_PATH) -> AppConfig:
         auto_close_time=raw.get("auto_close_time", "21:00"),
         db_path=raw.get("db_path", "attendance-supabase.db"),
         log_level=raw.get("log_level", "INFO"),
+        sounds_enabled=raw.get("sounds_enabled", True),
+        sounds_directory=raw.get("sounds_directory", "sounds"),
     )
 
     from uuid import UUID
@@ -86,6 +90,10 @@ def load_config(path: str = _CONFIG_PATH) -> AppConfig:
         raise ValueError('SSC attendance uses Asia/Manila and a 21:00 cutoff; the reader and cloud must agree.')
     if min(cfg.sync_interval_seconds, cfg.debounce_seconds, cfg.clock_out_window_seconds) < 1:
         raise ValueError('Intervals must be positive.')
+    if not isinstance(cfg.sounds_enabled, bool):
+        raise ValueError('sounds_enabled must be true or false.')
+    if not isinstance(cfg.sounds_directory, str) or not cfg.sounds_directory.strip():
+        raise ValueError('sounds_directory must be a nonempty folder path.')
     logger.info("Config loaded: clock_out_uid=%s  debounce=%ds  clock_out_window=%ds",
                 cfg.clock_out_tag_uid, cfg.debounce_seconds, cfg.clock_out_window_seconds)
     return cfg

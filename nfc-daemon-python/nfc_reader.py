@@ -28,7 +28,7 @@ We strip the trailing status bytes (90 00) to get the raw UID.
 
 import logging
 import time
-from typing import Generator, Optional
+from typing import Callable, Generator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -96,13 +96,14 @@ class NfcReader:
             print(f"Tapped: {uid}")
     """
 
-    def __init__(self, reader_index: int = 0) -> None:
+    def __init__(self, reader_index: int = 0, on_read_error: Optional[Callable[[], None]] = None) -> None:
         """
         Args:
             reader_index: Index into the list of PC/SC readers.
                           0 = first reader (the ACR122U if it's the only reader).
         """
         self.reader_index = reader_index
+        self._on_read_error = on_read_error
         self._running = False
 
     def stop(self) -> None:
@@ -147,6 +148,7 @@ class NfcReader:
         detect card presence without busy-waiting.
         """
         last_uid: Optional[str] = None
+        read_failed = False
 
         while self._running:
             try:
@@ -157,11 +159,18 @@ class NfcReader:
                 connection.disconnect()
 
                 if uid and uid != last_uid:
+                    read_failed = False
                     last_uid = uid
                     logger.info("Tag detected: %s", uid)
                     yield uid
                 elif not uid:
                     last_uid = None
+                    if not read_failed and self._on_read_error:
+                        try:
+                            self._on_read_error()
+                        except Exception as exc:
+                            logger.warning('Read-error feedback failed: %s', exc)
+                    read_failed = True
 
                 # Brief pause to avoid hammering the PC/SC daemon while a card is held
                 time.sleep(0.3)
@@ -169,8 +178,10 @@ class NfcReader:
             except (CardConnectionException, NoCardException):
                 # Card was removed or not yet presented — this is normal
                 last_uid = None
+                read_failed = False
                 time.sleep(0.3)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Connect attempt failed (%s) — card likely absent.", exc)
                 last_uid = None
+                read_failed = False
                 time.sleep(0.3)

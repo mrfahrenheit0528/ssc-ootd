@@ -21,6 +21,7 @@ from supabase_sync import SupabaseSyncer, ReaderContext
 from nfc_reader import NfcReader
 from scheduler import AutoCloseScheduler
 from state_machine import StateMachine, TapResult
+from sound_feedback import SoundFeedback
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -72,12 +73,56 @@ _RESULT_EMOJI = {
 logger = logging.getLogger("main")
 
 
-def _on_event(uid: str, result: TapResult) -> None:
+def _on_event(uid: str, result: TapResult, feedback=None) -> None:
     label = _RESULT_EMOJI.get(result, str(result))
     if uid != "__timeout__":
         logger.info("[TAP]  uid=%-12s  →  %s", uid, label)
     else:
         logger.info("[TIMER] %s", label)
+    if feedback is not None:
+        feedback.on_result(result)
+
+
+def _process_scan(uid, cfg, conn, cloud, registry, sm, syncer, feedback):
+    """One scan; success means durable local recording, not cloud upload."""
+    try:
+        try:
+            if cloud.tap(uid):
+                logger.info('Card read for enrollment; attendance skipped.')
+                feedback.play('success')
+                return None
+        except Exception:
+            # Normal attendance remains available offline.
+            pass
+        try:
+            registry.refresh()
+        except Exception:
+            pass
+        db.recover_overdue(conn, close_time=cfg.auto_close_time)
+        if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid) and not registry.accepts_unknown_cards():
+            try:
+                registry.refresh()
+            except Exception:
+                pass
+            if not registry.is_enrolled(uid) and not registry.accepts_unknown_cards():
+                logger.info('Unknown cards require the updated server migration; refresh online before first use.')
+                feedback.play('unsuccessful')
+                return None
+        if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid):
+            logger.info('Unlinked card: attendance will stay pending until an admin identifies its owner.')
+        result = sm.process_tap(uid)
+    except Exception:
+        logger.exception('Could not process card %s; no successful scan acknowledged.', uid)
+        feedback.play('unsuccessful')
+        return None
+    if result in (TapResult.CLOCKED_IN, TapResult.CLOCKED_OUT):
+        # Cloud work is separate: a later upload failure must not change a
+        # successfully recorded local scan into an unsuccessful sound.
+        try:
+            syncer.trigger()
+        except Exception:
+            logger.exception('Attendance was saved locally; upload will retry on the next sync cycle.')
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +152,9 @@ def main() -> None:
         logger.warning('Starting with the locally cached roster: %s', exc)
     syncer = SupabaseSyncer(conn, cloud, cfg.sync_interval_seconds)
     scheduler = AutoCloseScheduler(conn, cfg.auto_close_time)
-    sm = StateMachine(cfg, conn, _on_event)
-    reader = NfcReader()
+    feedback = SoundFeedback(cfg.sounds_directory, enabled=cfg.sounds_enabled)
+    sm = StateMachine(cfg, conn, lambda uid, result: _on_event(uid, result, feedback))
+    reader = NfcReader(on_read_error=lambda: feedback.play('unsuccessful'))
     def shutdown(signum, frame):
         logger.info('Stopping NFC reader...')
         reader.stop()
@@ -122,34 +168,11 @@ def main() -> None:
     logger.info('Ready for NFC cards. Attendance is buffered locally before upload.')
     try:
         for uid in reader.poll():
-            try:
-                # The server decides enrollment mode and applies its expiry.
-                if cloud.tap(uid):
-                    logger.info('Card read for enrollment; attendance skipped.')
-                    continue
-            except Exception:
-                # Attendance still works offline using the last confirmed server capability.
-                pass
-            try:
-                registry.refresh()  # Reconcile manual corrections before deciding the next transition.
-            except Exception:
-                pass
-            db.recover_overdue(conn,close_time=cfg.auto_close_time)
-            if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid) and not registry.accepts_unknown_cards():
-                try:
-                    registry.refresh()  # Accept a newly enrolled card without waiting for the periodic refresh.
-                except Exception:
-                    pass
-                if not registry.is_enrolled(uid) and not registry.accepts_unknown_cards():
-                    logger.info('Unknown cards require the updated server migration; refresh online before first use.')
-                    continue
-            if uid != cfg.clock_out_tag_uid and not registry.is_enrolled(uid):
-                logger.info('Unlinked card: attendance will stay pending until an admin identifies its owner.')
-            result = sm.process_tap(uid)
-            if result in (TapResult.CLOCKED_IN, TapResult.CLOCKED_OUT):
-                syncer.trigger()
+            _process_scan(uid, cfg, conn, cloud, registry, sm, syncer, feedback)
     finally:
         reader.stop()
+        sm.stop()
+        feedback.close()
         registry.stop()
         syncer.stop()
         scheduler.stop()

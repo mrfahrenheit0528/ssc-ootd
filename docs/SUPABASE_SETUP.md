@@ -459,6 +459,13 @@ reader with one local duty-state database.
 
 **Checkpoint:** You can see a complete clock-in and clock-out session.
 
+The Windows daemon also plays the custom files in
+[`nfc-daemon-python/sounds`](../nfc-daemon-python/sounds/README.md): success,
+unsuccessful, ignored, and clock-out mode. Keep that folder with the reader
+installation, enable the PC's audio output, and restart the daemon after updating.
+Sounds work offline; a successful cue confirms local saving rather than cloud
+upload. No SQL migration or new Python audio dependency is needed.
+
 Run only one reader program at a time. If you previously set up an automatic
 Windows task for the reader, stop that instance before starting a development
 instance.

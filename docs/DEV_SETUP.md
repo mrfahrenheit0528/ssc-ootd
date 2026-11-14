@@ -197,6 +197,11 @@ See [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups
   not on an independent cloud timer.
 - Windows auto-start uses `nfc-daemon-python/setup_task_scheduler.ps1` and runs
   at user sign-in. It does not record cards while the PC is off or logged out.
+- [Local reader sounds](../nfc-daemon-python/sounds/README.md) acknowledge scan
+  outcomes and clock-out mode. The four PCM WAV files ship in `sounds/` and use
+  Windows audio without extra dependencies. Existing reader configs enable
+  them by default; optional `sounds_enabled` and `sounds_directory` settings
+  control playback. Audio failures do not interrupt local recording or sync.
 - See the final sections of [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for known
   limitations and enhancements to schedule after the cloud migration is live.
 

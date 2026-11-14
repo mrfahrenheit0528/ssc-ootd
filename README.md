@@ -18,6 +18,7 @@ for the new semester/calendar migration before starting the updated code.
 ## Features
 
 - NFC clock-in and supervised clock-out through a dedicated clock-out tag.
+- Custom [reader sound cues](nfc-daemon-python/sounds/README.md) for successful, unsuccessful, ignored scans and clock-out mode on Windows.
 - SQLite offline queue with persistent event UUIDs for duplicate-safe retries.
 - Persistent officer cache for known-card attendance after an offline restart.
 - Cloud sign-in: admins manage records; approved officers have viewing access.
