@@ -36,7 +36,7 @@ giving them a serving membership or consuming a position's seats.
 
 ## Access and reader behavior
 
-**Officer Roster is admin-only**, including its route, navigation entry, raw profile reads, and photographs. A secretary managing councils needs the existing `admin` application role. There is no separate secretary permission tier. Approved `officer` accounts retain Live Kiosk, Log History, and Calendar access; those reports resolve identities from semester snapshots.
+**Officer Roster is admin-only**, including its route, navigation entry, raw profile reads, and photographs. A secretary managing councils needs the existing `admin` application role. There is no separate secretary permission tier. Approved `officer` accounts can access Live Kiosk, Log History, Calendar, and Analytics; those reports resolve identities from semester snapshots.
 
 The reader recognizes enrolled members serving in the semester covering the scan date. Outgoing officers' current scans stay pending, visible by UID in Live Kiosk and excluded from officer analytics until identified by an admin. Delayed offline scans from a previous semester still resolve using that semester's council. Uploaded event receipts remain acknowledged even after a roster change. Dates outside any semester retain the legacy active-profile behavior.
 

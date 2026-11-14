@@ -1,6 +1,6 @@
 # Attendance Analytics
 
-Admins can open **Analytics** from the sidebar (`/analytics`). The page defaults
+Admins and approved officers can open **Analytics** from the sidebar (`/analytics`). The page defaults
 to the active semester. Choose an archived semester, a custom date range, or a
 recent-period shortcut to analyze another period. Dates stay within the selected
 semester; All semesters allows an unrestricted custom period (up to ten years).
@@ -32,7 +32,11 @@ sorted by time. Officers with only unpaired clock-ins/outs are excluded.
 View selection and search affect only the table and its CSV export; the overview
 always represents the whole period.
 The export contains all matching officers, including those on other table pages.
-The Analytics route and sidebar entry require an admin account.
+The Analytics route requires a signed-in account with the `admin` or `officer`
+application role. Both roles can view reports and export the officer breakdown.
+The existing membership permissions cover the report data; no SQL migration is
+needed for this access change. Roster management, schedules, semesters, and
+attendance corrections remain admin-only.
 
 ## How numbers are calculated
 

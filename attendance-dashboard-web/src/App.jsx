@@ -14,15 +14,15 @@ import Login          from './pages/Login'
 
 const Analytics = lazy(() => import('./pages/Analytics'))
 
-const PUBLIC_NAV = [
+const MEMBER_NAV = [
   { to: '/',         label: 'Live Kiosk',     icon: Monitor      },
   { to: '/history',  label: 'Log History',     icon: History      },
   { to: '/calendar', label: 'Calendar',        icon: CalendarDays },
+  { to: '/analytics', label: 'Analytics',      icon: BarChart3    },
 ]
 
 const ADMIN_NAV = [
   { to: '/roster',   label: 'Officer Roster', icon: Users          },
-  { to: '/analytics',   label: 'Analytics',  icon: BarChart3       },
   { to: '/day-config',  label: 'Day Config',  icon: Settings       },
   { to: '/semesters',   label: 'Semesters',   icon: GraduationCap  },
 ]
@@ -51,9 +51,9 @@ function Sidebar({open,onClose}) {
         </div>
       </div>
 
-      {/* Public nav */}
+      {/* Approved member navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {PUBLIC_NAV.map(({ to, label, icon: Icon }) => (
+        {MEMBER_NAV.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             onClick={onClose}
@@ -138,10 +138,10 @@ function AppShell() {
           <Route path="/history"  element={<ProtectedRoute><LogHistory /></ProtectedRoute>}    />
           <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>}      />
 
-          {/* Admin-only routes */}
           <Route path="/analytics" element={
-            <ProtectedRoute adminOnly><Suspense fallback={<p role="status" className="text-sm text-slate-400 animate-pulse">Loading analytics…</p>}><Analytics /></Suspense></ProtectedRoute>
+            <ProtectedRoute><Suspense fallback={<p role="status" className="text-sm text-slate-400 animate-pulse">Loading analytics…</p>}><Analytics /></Suspense></ProtectedRoute>
           } />
+          {/* Admin-only routes */}
           <Route path="/day-config" element={
             <ProtectedRoute adminOnly><DayConfig /></ProtectedRoute>
           } />

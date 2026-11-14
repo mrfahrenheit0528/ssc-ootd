@@ -32,7 +32,7 @@ for the new semester/calendar migration before starting the updated code.
 - Unknown-card attendance stays pending until an admin links it to an officer.
 - Semester weekly assignments and a day-type calendar, managed by admins.
 - Explicit [whole-semester schedule application](docs/SCHEDULE_HISTORY.md) for historical attendance.
-- Admin [attendance analytics](docs/ANALYTICS.md) with trends, officer comparisons, and CSV exports.
+- [Attendance analytics](docs/ANALYTICS.md) for admins and approved officers, with trends, officer comparisons, and CSV exports.
 - Audited attendance corrections with reader-state reconciliation.
 - School-time 9 PM auto-close with missed-cutoff recovery on reconnect.
 

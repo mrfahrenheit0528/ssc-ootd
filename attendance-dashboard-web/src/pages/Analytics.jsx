@@ -55,7 +55,7 @@ export default function Analytics() {
     <header className="relative overflow-hidden rounded-2xl border border-brand-500/20 bg-gradient-to-br from-brand-950/70 via-slate-900/80 to-slate-950 p-6 sm:p-8">
       <div className="analytics-glow" aria-hidden="true" />
       <div className="relative flex justify-between items-start gap-4 flex-wrap">
-        <div><span className="inline-flex gap-1.5 items-center text-[10px] uppercase tracking-[0.18em] text-brand-300 font-semibold mb-3"><ShieldCheck className="w-3.5 h-3.5" />Admin insights</span>
+        <div><span className="inline-flex gap-1.5 items-center text-[10px] uppercase tracking-[0.18em] text-brand-300 font-semibold mb-3"><ShieldCheck className="w-3.5 h-3.5" />Attendance insights</span>
           <h1 className="text-2xl sm:text-3xl font-bold text-white flex items-center gap-3"><BarChart3 className="w-7 h-7 text-brand-400" />Attendance Analytics</h1>
           <p className="text-sm text-slate-400 mt-2 max-w-xl leading-relaxed">See participation patterns, understand required attendance, and explore each officer’s contribution.</p>
         </div>
