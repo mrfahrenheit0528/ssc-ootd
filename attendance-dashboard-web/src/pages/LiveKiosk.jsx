@@ -3,10 +3,10 @@
 // Real-time attendance board for today's events.
 // Uses Supabase Realtime to receive live updates the moment a tag is tapped.
 
-import { useState, useEffect, useRef } from 'react'
-import { watchRecords, recoverAttendance } from '../data'
+import React, { useState, useEffect, useRef } from 'react'
+import { watchLiveAttendance, recoverAttendance } from '../data'
 import { format } from 'date-fns'
-import { dateKey,dateBounds,formatTime } from '../utils/attendanceTime'
+import { dateKey,formatTime } from '../utils/attendanceTime'
 import { buildAttendanceSessions, latestAttendanceByOfficer } from '../utils/attendanceSessions'
 import { useSemester } from '../contexts/SemesterContext'
 import { nfcUid } from '../utils/officerIdentity'
@@ -34,17 +34,20 @@ function StatCard({ icon: Icon, label, value, accent }) {
 function SessionRow({ session, isNew, officer }) {
   const { officer_name, card_uid, clockIn, clockOut } = session
   const fmt = formatTime
+  const event = clockIn ?? clockOut
+  const unlinked = Boolean(event?.is_unlinked)
+  const card = event?.nfc_uid ?? nfcUid(officer,card_uid)
 
   return (
     <tr className={`border-b border-white/5 transition-all duration-500 ${isNew ? 'bg-brand-500/10 animate-fade-in' : 'hover:bg-white/3'}`}>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500/30 to-violet-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-brand-300">
-            {officer_name?.charAt(0) ?? '?'}
+            {unlinked ? '?' : officer_name?.charAt(0) ?? '?'}
           </div>
           <div>
-            <p className="font-medium text-slate-100">{officer_name ?? card_uid}</p>
-            <p className="text-xs text-slate-500 font-mono">{nfcUid(officer,card_uid) || 'No card linked'}</p>
+            <p className={`font-medium text-slate-100 ${unlinked ? 'font-mono' : ''}`}>{unlinked ? card : officer_name ?? card_uid}</p>
+            {unlinked ? <p className="text-xs text-amber-300">Unlinked card</p> : <p className="text-xs text-slate-500 font-mono">{card || 'No card linked'}</p>}
           </div>
         </div>
       </td>
@@ -68,7 +71,6 @@ function SessionRow({ session, isNew, officer }) {
 export default function LiveKiosk() {
   const { activeSemester }        = useSemester()
   const [logs, setLogs]           = useState([])
-  const [officerMap,setOfficerMap] = useState({})
   const [loading, setLoading]     = useState(true)
   const [connected, setConnected] = useState(false)
   const [error,setError] = useState('')
@@ -77,8 +79,6 @@ export default function LiveKiosk() {
   const prevUids = useRef(new Set())
 
   const [dayKey, setDayKey] = useState(() => dateKey())
-  const today = new Date(dayKey + 'T12:00:00')
-  useEffect(()=>watchRecords('officers',{includeInactive:true},rows=>setOfficerMap(Object.fromEntries(rows.map(o=>[o.card_uid,o]))),()=>{}),[])
   useEffect(() => {
     const timer = setInterval(() => setDayKey(dateKey()), 30000)
     return () => clearInterval(timer)
@@ -86,13 +86,17 @@ export default function LiveKiosk() {
 
   useEffect(() => {
     setLoading(true)
+    setLogs([]);setConnected(false);setError('')
+    setNewUids(new Set())
     prevUids.current = new Set()
-    const recover = () => recoverAttendance().catch(e=>setError('Attendance recovery pending: '+e.message))
+    let highlightTimer
+    let stopped = false
+    const recover = () => recoverAttendance().catch(e=>{if(!stopped) setError('Attendance recovery pending: '+e.message)})
     recover()
     const timer=setInterval(recover,30000)
-    const unsub = watchRecords('attendance_logs', {
-      ...dateBounds(dayKey), orderBy: 'timestamp',
-    }, (incoming) => {
+    const unsub = watchLiveAttendance((snapshot) => {
+        const incoming = snapshot.events
+        if (snapshot.date !== dayKey) setDayKey(snapshot.date)
         // Detect newly active officer UIDs
         const freshUids = new Set()
         incoming.forEach(doc => {
@@ -102,7 +106,8 @@ export default function LiveKiosk() {
 
         if (freshUids.size > 0) {
           setNewUids(freshUids)
-          setTimeout(() => setNewUids(new Set()), 2500)
+          clearTimeout(highlightTimer)
+          highlightTimer = setTimeout(() => setNewUids(new Set()), 2500)
         }
 
         setLogs(incoming)
@@ -111,19 +116,25 @@ export default function LiveKiosk() {
       },
       (err) => {
         console.error('Attendance subscription error:', err)
-        setConnected(false);setError('Live attendance unavailable. Check the connection and retry.')
+        setConnected(false);setError(err.message || 'Live attendance unavailable. Check the connection and retry.')
         setLoading(false)
       },
     )
 
-    return () => {clearInterval(timer);unsub()}
+    return () => {stopped=true;clearInterval(timer);clearTimeout(highlightTimer);unsub()}
   }, [dayKey,retry])
 
+  return <LiveKioskBoard logs={logs} dayKey={dayKey} activeSemester={activeSemester} loading={loading} connected={connected} error={error} newUids={newUids} onRetry={()=>setRetry(value=>value+1)} />
+}
+
+export function LiveKioskBoard({ logs, dayKey, activeSemester, loading, connected, error, newUids = new Set(), onRetry }) {
+  const today = new Date(dayKey + 'T12:00:00')
   const sessions   = buildAttendanceSessions(logs)
   const latest = latestAttendanceByOfficer(logs)
   const onDutyNow = [...latest.values()].filter(log=>log.type === 'CLOCK_IN').length
   const clockedOut = new Set(sessions.filter(s => s.clockOut).map(s => s.card_uid)).size
   const totalOfficers = new Set(logs.map(l => l.card_uid)).size
+  const unlinkedCards = new Set(logs.filter(log => log.is_unlinked).map(log => log.card_uid)).size
 
   return (
     <div className="space-y-6 animate-slide-up">
@@ -156,13 +167,14 @@ export default function LiveKiosk() {
         </div>
       </div>
 
-      {error && <div role="alert" className="card p-4 text-amber-300">{error}<button className="btn-secondary ml-3" onClick={()=>setRetry(v=>v+1)}>Retry</button></div>}
+      {error && <div role="alert" className="card p-4 text-amber-300">{error}<button className="btn-secondary ml-3" onClick={onRetry}>Retry</button></div>}
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={Users}  label="Officers Today"    value={totalOfficers}            accent="brand"   />
+        <StatCard icon={Users}  label="Attendees Today"   value={totalOfficers}            accent="brand"   />
         <StatCard icon={Clock}  label="Currently On Duty" value={Math.max(0, onDutyNow)}  accent="emerald" />
         <StatCard icon={LogOut} label="Clocked Out"       value={clockedOut}               accent="amber"  />
       </div>
+      {unlinkedCards > 0 && <p className="text-xs text-amber-300">{unlinkedCards} unlinked card{unlinkedCards === 1 ? '' : 's'} included in live counts. These scans stay out of officer analytics until an admin links the card owner.</p>}
 
       {/* Session table */}
       <div className="card overflow-hidden">
@@ -187,7 +199,7 @@ export default function LiveKiosk() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Officer</th>
+                  <th>Officer / Card</th>
                   <th>Clock In</th>
                   <th>Clock Out</th>
                 </tr>
@@ -197,7 +209,6 @@ export default function LiveKiosk() {
                   <SessionRow
                     key={`${session.card_uid}-${i}`}
                     session={session}
-                    officer={officerMap[session.card_uid]}
                     isNew={newUids.has(session.card_uid)}
                   />
                 ))}

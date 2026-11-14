@@ -140,3 +140,33 @@ test('whole-semester scheduling uses the explicit scoped RPC while ordinary save
   assert.deepEqual(calls[0],['/rest/v1/rpc/save_semester_schedule',{p_semester_id:'term',p_schedule:{}}])
   assert.deepEqual(calls[1],['/rest/v1/rpc/save_semester_schedule_scoped',{p_semester_id:'term',p_schedule:{},p_scope:'whole_semester'}])
 })
+
+test('live attendance loads an atomic snapshot, refreshes all linking sources, and polls without leaking subscriptions',async t=>{
+  const previousWindow=globalThis.window
+  globalThis.window=new EventTarget()
+  const listeners=new Map(),cleared=[],received=[]
+  let poll,removed=0
+  t.mock.method(globalThis,'setInterval',(callback,ms)=>{assert.equal(ms,5000);poll=callback;return 123})
+  t.mock.method(globalThis,'clearInterval',id=>cleared.push(id))
+  const channel={on:(_type,filter,callback)=>{listeners.set(filter.table,callback);return channel},subscribe:()=>channel}
+  const rows=Array.from({length:1001},(_,index)=>({id:`event-${index}`,card_uid:'unlinked:UNKNOWN1',nfc_uid:'UNKNOWN1',is_unlinked:true,type:'CLOCK_IN',timestamp:'2026-11-15T09:00:00+08:00'}))
+  const sdk={channel:()=>channel,removeChannel:()=>{removed++},rpc:async name=>{assert.equal(name,'live_kiosk_context');return {data:{date:'2026-11-15',events:rows}}}}
+  const repo=createDataAccess(()=>sdk)
+  let stop
+  try {
+    stop=repo.watchLiveAttendance(value=>received.push(value),error=>{throw error})
+    await new Promise(setImmediate)
+    assert.equal(received[0].events.length,1001,'JSON snapshot must preserve events beyond the PostgREST row limit')
+    assert.equal(received[0].events[0].timestamp.toDate().toISOString(),'2026-11-15T01:00:00.000Z')
+    assert.deepEqual([...listeners.keys()],['attendance_logs','pending_card_events','officers'])
+    rows[0]={...rows[0],card_uid:'OFF'+'A'.repeat(32),officer_name:'Ana Cruz',is_unlinked:false}
+    listeners.get('pending_card_events')()
+    await new Promise(setImmediate)
+    assert.equal(received.at(-1).events[0].is_unlinked,false)
+    poll()
+    await new Promise(setImmediate)
+    assert.equal(received.length,3)
+  } finally {stop?.();globalThis.window=previousWindow}
+  assert.equal(removed,1)
+  assert.deepEqual(cleared,[123])
+})

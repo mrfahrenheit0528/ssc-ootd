@@ -130,6 +130,44 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(context['officers'][0]['card_uid'], 'AAAA1111')
         with self.assertRaises(psycopg.errors.InsufficientPrivilege): self.conn.execute('SELECT * FROM public.reader_devices')
 
+    def test_live_kiosk_shows_only_today_pending_cards_to_approved_members(self):
+        stamp=self.conn.execute('SELECT now()').fetchone()[0]
+        self.role(anonymous=True)
+        self.ingest([self.event(card_uid='UNKNOWN1',timestamp=stamp.isoformat()),
+            self.event(card_uid='UNKNOWN2',timestamp=(stamp-timedelta(days=1)).isoformat()),
+            self.event(card_uid='UNKNOWN3',timestamp=(stamp+timedelta(days=1)).isoformat())])
+        self.role(OFFICER)
+        snapshot=self.conn.execute('SELECT public.live_kiosk_context()').fetchone()[0]
+        self.assertEqual(len(snapshot['events']),1)
+        live=snapshot['events'][0]
+        self.assertEqual((live['card_uid'],live['nfc_uid'],live['officer_name'],live['is_unlinked']),('unlinked:UNKNOWN1','UNKNOWN1',None,True))
+        self.assertEqual(set(live),{'id','card_uid','nfc_uid','officer_name','type','timestamp','is_auto_closed','created_at','is_unlinked'})
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events').fetchone()[0],0,'raw pending archive remains admin-only')
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0],0,'unknown cards stay out of officer attendance reports')
+        self.role(OUTSIDER)
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
+            self.conn.execute('SELECT public.live_kiosk_context()')
+        self.role(anonymous=True)
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
+            self.conn.execute('SELECT public.live_kiosk_context()')
+
+    def test_live_card_linking_promotes_one_event_and_never_reveals_a_deleted_receipt(self):
+        stamp=self.conn.execute('SELECT now()').fetchone()[0]
+        event=self.event(card_uid='UNKNOWN1',timestamp=stamp.isoformat())
+        self.role(anonymous=True);self.ingest([event])
+        self.role(ADMIN)
+        before=self.conn.execute('SELECT public.live_kiosk_context()').fetchone()[0]['events']
+        self.assertEqual(len(before),1)
+        key=self.conn.execute('SELECT public.save_officer_profile(null,%s,%s,true)',('UNKNOWN1',Jsonb({'first_name':'Sample','last_name':'Pending','position':'Officer'}))).fetchone()[0]
+        self.role(OFFICER)
+        after=self.conn.execute('SELECT public.live_kiosk_context()').fetchone()[0]['events']
+        self.assertEqual(len(after),1)
+        self.assertEqual(after[0]['id'],event['event_id'])
+        self.assertEqual((after[0]['card_uid'],after[0]['nfc_uid'],after[0]['officer_name'],after[0]['is_unlinked']),(key,'UNKNOWN1','Sample Pending',False))
+        self.role(ADMIN)
+        self.conn.execute("SELECT public.delete_attendance(%s,'Wrong card scan')",(event['event_id'],))
+        self.assertEqual(self.conn.execute('SELECT public.live_kiosk_context()').fetchone()[0]['events'],[])
+
     def test_invalid_reader_is_rejected(self):
         self.role(anonymous=True)
         with self.assertRaises(psycopg.errors.InsufficientPrivilege): self.ingest([self.event()], token='wrong')

@@ -22,6 +22,7 @@ for the new semester/calendar migration before starting the updated code.
 - Persistent officer cache for known-card attendance after an offline restart.
 - Cloud sign-in: admins manage records; approved officers have viewing access.
 - Live attendance, officer roster, monthly calendar, schedules, and semesters.
+- [Live Kiosk](docs/LIVE_KIOSK.md) shows unlinked NFC cards by UID until their owner is identified.
 - Compressed officer photos stored directly as PostgreSQL binary data.
 - Archived roster snapshots retain their original photo references.
 - CSV and Excel exports with assigned/voluntary attendance calculations.

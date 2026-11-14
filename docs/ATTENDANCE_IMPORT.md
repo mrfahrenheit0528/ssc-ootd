@@ -125,6 +125,10 @@ If paper and pending scans describe an overlapping visit, review the resulting
 entries with the existing correction tools; linking does not guess which source
 should win.
 
+With the [Live Kiosk upgrade](LIVE_KIOSK.md), today's unknown cards also appear
+by NFC UID on the live board and contribute to live on-duty counts. This does
+not include them in named Analytics or Log History before card linking.
+
 Keep photos, directories, signatures, and extracted CSVs in the ignored
 `development/` folder. Public commits contain only code, schema, instructions,
 and fabricated test data. Nothing in the development folder is uploaded by

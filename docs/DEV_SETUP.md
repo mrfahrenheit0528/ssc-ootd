@@ -135,6 +135,15 @@ generated empty lists. Manual lists and day types continue to override weekly
 assignments. No attendance events are rewritten; reports resolve the updated
 assignments on refresh. See [SCHEDULE_HISTORY.md](SCHEDULE_HISTORY.md).
 
+`live_kiosk_context` returns one member-checked JSON snapshot of today's linked
+events plus unlinked pending events. Pending identities use an `unlinked:` UI
+key and a separate physical `nfc_uid`; only live-display fields are exposed.
+The pending archive RLS remains admin-only. `watchLiveAttendance` refreshes this
+atomic snapshot on relevant Realtime changes and every five seconds, including
+for officer accounts that cannot subscribe to raw pending rows. Both linked and
+unlinked events feed only the kiosk view; other reports still read attendance
+logs exclusively. See [LIVE_KIOSK.md](LIVE_KIOSK.md).
+
 The dashboard uses Supabase Auth sessions and row-level security. Changing
 UI visibility alone never grants database access. Officer deletion deactivates
 the roster entry; attendance and archived photos are retained.

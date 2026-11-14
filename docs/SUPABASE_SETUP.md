@@ -134,6 +134,15 @@ earlier dates. Existing projects whose first three migrations already ran only
 need this new file. Follow [SCHEDULE_HISTORY.md](SCHEDULE_HISTORY.md) to apply an
 existing schedule and refresh historical Analytics; no CSV re-import is needed.
 
+## 2D. Show unknown cards on the live kiosk
+
+After Step 2C, run
+[202611150001_live_unlinked_cards.sql](../supabase/migrations/202611150001_live_unlinked_cards.sql)
+once, then refresh the updated dashboard. Approved members can see today's
+unknown-card attendance by NFC UID, while the pending archive and linking remain
+admin-only. See [LIVE_KIOSK.md](LIVE_KIOSK.md). No reader configuration changes
+are needed for this upgrade.
+
 ## 3. Set up website sign-in accounts
 
 ### 3A. Turn off public signups

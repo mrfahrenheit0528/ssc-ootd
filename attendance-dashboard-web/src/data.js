@@ -122,35 +122,48 @@ export function createDataAccess(getClient = client) {
     return check(await getClient().rpc('set_enrollment', { p_owner: owner, p_active: active }))
   }
   async function recoverAttendance() { return check(await getClient().rpc('recover_due_attendance')) }
-  function watch(table, load, onData, onError = console.error) {
+  function watch(table, load, onData, onError = console.error, pollMs = 0) {
     let stopped = false
     let requested = 0
+    let inFlight = 0
     const refresh = async () => {
+      if (stopped) return
       const current = ++requested
+      inFlight++
       try {
         const result = await load()
         if (!stopped && current === requested) onData(result)
       } catch (error) {
         if (!stopped && current === requested) onError(error)
-      }
+      } finally { inFlight-- }
     }
-    const channel = getClient().channel(`ssc-${table}-${crypto.randomUUID()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table }, refresh)
-      .subscribe(status => {
+    const channel = getClient().channel(`ssc-${String(table)}-${crypto.randomUUID()}`)
+    for (const name of Array.isArray(table) ? table : [table]) channel.on('postgres_changes', { event: '*', schema: 'public', table: name }, refresh)
+    channel.subscribe(status => {
         if (status === 'SUBSCRIBED') refresh()
         if (!stopped && (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT')) onError(new Error('Live connection interrupted. Reconnecting…'))
       })
     refresh()
+    const poll = pollMs ? setInterval(() => { if (!inFlight) refresh() }, pollMs) : null
     window.addEventListener('online', refresh)
     return () => {
       stopped = true
+      if (poll) clearInterval(poll)
       window.removeEventListener('online', refresh)
       getClient().removeChannel(channel)
     }
   }
   const watchRecords = (table, options, onData, onError) => watch(table, () => listRecords(table, options), onData, onError)
   const watchRecord = (table, id, onData, onError) => watch(table, () => getRecord(table, id), onData, onError)
-  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveOfficerProfile, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
+  // Pending-table Realtime respects admin-only RLS. Poll the scoped snapshot
+  // too, so approved officer accounts see unknown taps without archive access.
+  const watchLiveAttendance = (onData, onError) => watch(['attendance_logs','pending_card_events','officers'], async () => {
+    const result = await getClient().rpc('live_kiosk_context')
+    if (result.error?.code === 'PGRST202') throw new Error('Run the new 202611150001_live_unlinked_cards.sql migration once to enable the updated Live Kiosk.')
+    const context = check(result)
+    return { date: context.date, events: context.events.map(event => normalizeRecord('attendance_logs', event)) }
+  }, onData, onError, 5000)
+  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, watchLiveAttendance, saveOfficer, saveOfficerProfile, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
 }
 
-export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, saveOfficer, saveOfficerProfile, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()
+export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, watchLiveAttendance, saveOfficer, saveOfficerProfile, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()
