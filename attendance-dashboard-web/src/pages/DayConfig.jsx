@@ -1,5 +1,7 @@
 import Select from '../components/Select'
 import Tabs from '../components/Tabs'
+import WeeklyAssignmentGrid from '../components/WeeklyAssignmentGrid'
+import DirectoryOfficerPicker from '../components/DirectoryOfficerPicker'
 import { useState, useEffect, useRef } from 'react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, parseISO } from 'date-fns'
 import { Save, Settings, ChevronLeft, ChevronRight, X, CalendarDays, CalendarRange } from 'lucide-react'
@@ -40,15 +42,7 @@ function DayEditor({ day, context, semesterId, officers, onClose, onSaved }) {
             Use a different officer list for this date
           </label>
           {!custom && <p className="text-xs text-slate-400">The weekly assignment is preserved. An empty custom list explicitly means no officers are required.</p>}
-          {custom && <div className="space-y-2 max-h-48 overflow-auto">
-            {officers.filter(o => o.active !== false || uids.includes(o.card_uid)).map(o => (
-              <label key={o.card_uid} className="flex gap-2 text-sm">
-                <input type="checkbox" checked={uids.includes(o.card_uid)} disabled={saving}
-                  onChange={() => setUids(list => list.includes(o.card_uid) ? list.filter(v => v !== o.card_uid) : [...list,o.card_uid])} />
-                {o.first_name} {o.last_name}{o.active === false ? ' (Inactive)' : ''}
-              </label>
-            ))}
-          </div>}
+          {custom && <DirectoryOfficerPicker officers={officers} value={uids} disabled={saving} onChange={setUids} />}
         </div>
       ) : (
         <p key="voluntary-attendance" role="status" className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300 animate-fade-in">
@@ -113,13 +107,7 @@ export default function DayConfig() {
         { value:'weekly', label:'Weekly recurring assignments', icon:CalendarRange, badge:dirty ? 'Unsaved' : null, content:(
       <section className="card p-5 space-y-4"><h2 className="font-semibold">Weekly recurring assignments</h2>
         <p className="text-xs text-slate-400">Applies to {term?.name}. Scheduled days require the selected officers; Unscheduled days have no recurring duty. Revisions are retained automatically.</p>
-        {WEEKDAYS.map((label,day) => {
-          const entry = schedule[day] ?? emptyWeek()[day]
-          return <div key={day} className="border border-white/10 rounded-xl p-3 space-y-3">
-            <div className="flex flex-wrap gap-3 items-center"><span className="font-medium w-28">{label}</span><Select aria-label={`${label} schedule`} className="input w-44" disabled={readOnly || saving} value={entry.type} onChange={e => updateDay(day,{type:e.target.value,required_uids:e.target.value === 'unscheduled' ? [] : entry.required_uids})}><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option></Select></div>
-            {entry.type === 'scheduled' && <div className="grid sm:grid-cols-2 gap-2">{context.officers.filter(o=>o.active !== false || entry.required_uids.includes(o.card_uid)).map(o => <label className="flex gap-2 text-sm" key={o.card_uid}><input type="checkbox" disabled={readOnly || saving} checked={entry.required_uids.includes(o.card_uid)} onChange={() => updateDay(day,{required_uids:entry.required_uids.includes(o.card_uid) ? entry.required_uids.filter(uid => uid !== o.card_uid) : [...entry.required_uids,o.card_uid]})} />{o.first_name} {o.last_name}{o.active === false ? ' (Inactive)' : ''}</label>)}{!entry.required_uids.length && <p className="text-xs text-amber-300">Select at least one officer.</p>}</div>}
-          </div>
-        })}
+        <WeeklyAssignmentGrid officers={context.officers} schedule={schedule} disabled={readOnly || saving} onChange={updateDay} />
         <button className="btn-primary" disabled={readOnly || saving} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save semester schedule'}</button>
       </section>
         ) },

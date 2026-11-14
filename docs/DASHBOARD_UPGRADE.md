@@ -67,8 +67,15 @@ files on every reader PC before restarting those readers.
 
 1. Open **Semesters**. Create or activate the semester you intend to configure.
 2. Open **Day Config** and choose that semester. Open the **Weekly recurring assignments** tab.
-3. For each weekday choose **Scheduled** or **Unscheduled**.
-4. For a Scheduled day, tick the officers required for that weekday.
+3. In the weekly table, choose **Scheduled** or **Unscheduled** at the top of
+   each weekday column (Monday through Sunday).
+4. Tick the officers required in each Scheduled column. Rows follow the
+   directory's position sequence: executives, college/campus representatives,
+   assistants, then committee directors. Within a position, names sort A–Z.
+   Search by name, position, or group. **Select shown / Clear shown** only
+   changes officers visible in that search, retaining hidden selections.
+   Existing inactive assignees remain visible so you can remove them; they
+   cannot be assigned to additional days. Profiles without NFC cards are included.
 5. The calendar immediately previews type and officer changes for today and
    future dates. An amber message identifies unsaved changes. Earlier dates
    retain their saved assignments; No Classes, Optional, and custom date lists
