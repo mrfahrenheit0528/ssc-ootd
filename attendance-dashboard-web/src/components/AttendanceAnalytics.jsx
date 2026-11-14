@@ -95,12 +95,13 @@ function Fulfillment({ summary }) {
 
 function OfficerComparison({ officers, scope }) {
   const [search, setSearch] = useState('')
-  const [sort, setSort] = useState('name')
+  const [sort, setSort] = useState('rate')
   const [page, setPage] = useState(0)
   const [expanded, setExpanded] = useState(null)
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return officers.filter(o => [o.name, o.nfcUid ?? '', o.position].some(v => v.toLowerCase().includes(query)))
+    return officers.filter(o => sort === 'rate' ? o.attendedAssignedDays > 0 || o.voluntaryDays > 0 : sort === 'absent' ? o.absentDays > 0 : true)
+      .filter(o => [o.name, o.nfcUid ?? '', o.position].some(v => v.toLowerCase().includes(query)))
       .sort((a, b) => (sort === 'rate' ? (b.rate ?? -1) - (a.rate ?? -1) : sort === 'absent' ? b.absentDays - a.absentDays : sort === 'hours' ? b.seconds - a.seconds : 0) || a.name.localeCompare(b.name))
   }, [officers, search, sort])
   const pageCount = Math.max(1, Math.ceil(filtered.length / 10))
@@ -122,15 +123,17 @@ function OfficerComparison({ officers, scope }) {
         <button className="btn-secondary" onClick={exportSummary} disabled={!filtered.length}><ArrowDownToLine className="w-4 h-4" />Export CSV</button></div>
       <div className="flex gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48"><Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" /><input aria-label="Search officers" className="input pl-9" placeholder="Search officers…" value={search} onChange={e => { setSearch(e.target.value); setPage(0) }} /></div>
-        <Select className="w-full sm:w-52" aria-label="Sort officers" value={sort} onChange={e => { setSort(e.target.value); setPage(0) }}><option value="name">Name A–Z</option><option value="rate">Highest attendance rate</option><option value="absent">Most absences</option><option value="hours">Most recorded hours</option></Select>
+        <Select className="w-full sm:w-52" aria-label="Sort officers" value={sort} onChange={e => { setSort(e.target.value); setPage(0) }}><option value="rate">Highest attendance rate</option><option value="absent">Most absences</option><option value="hours">Most recorded hours</option></Select>
       </div>
+      {sort === 'rate' && <p className="text-xs text-slate-500">Only officers who attended assigned duties or volunteered are shown. Volunteers without required duties have no attendance percentage.</p>}
+      {sort === 'absent' && <p className="text-xs text-slate-500">Only officers who missed required duties are shown. Duties still in progress are excluded.</p>}
     </div>
     <div className="overflow-x-auto"><table className="w-full text-sm text-left whitespace-nowrap">
       <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-slate-400"><tr>{['Officer', 'Finalized attendance', 'Absent', 'Pending', 'Voluntary days', 'Recorded hours'].map(title => <th key={title} scope="col" className="px-5 py-3 font-semibold">{title}</th>)}</tr></thead>
       <tbody className="divide-y divide-white/5">{filtered.slice(currentPage * 10, currentPage * 10 + 10).map(officer => <OfficerRow key={officer.uid} officer={officer} expanded={expanded === officer.uid} onToggle={() => setExpanded(expanded === officer.uid ? null : officer.uid)} />)}</tbody>
     </table></div>
-    {!filtered.length && <p className="text-center text-sm text-slate-500 p-10">{officers.length ? 'No officers match your search.' : 'No officers or assignments found for this period.'}</p>}
-    <div className="p-4 flex justify-between gap-3 flex-wrap items-center border-t border-white/5 text-xs text-slate-400"><p>{filtered.length} officers · Search only filters this table and its export.</p>
+    {!filtered.length && <p className="text-center text-sm text-slate-500 p-10">{!officers.length ? 'No officers or assignments found for this period.' : search.trim() ? 'No officers match this view and search.' : sort === 'absent' ? 'No missed required duties for this period.' : 'No assigned attendees or volunteers for this period.'}</p>}
+    <div className="p-4 flex justify-between gap-3 flex-wrap items-center border-t border-white/5 text-xs text-slate-400"><p>{filtered.length} officers · This view and search affect only this table and its export.</p>
       {pageCount > 1 && <div className="flex items-center gap-3"><button className="btn-secondary" disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>Previous</button><span>{currentPage + 1} / {pageCount}</span><button className="btn-secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div>}</div>
   </section>
 }

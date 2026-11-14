@@ -21,8 +21,14 @@ report. Existing visits and recorded hours are retained; re-import is unnecessar
 
 The report includes animated summary cards, an interactive attendance trend,
 finalized attendance by weekday, record-quality insights, and a searchable officer
-table. Select an officer to expand visit details. Search and sorting affect only
-the table and its CSV export; the overview always represents the whole period.
+table. Select an officer to expand visit details. The default **Highest attendance
+rate** view shows assigned attendees and volunteers; officers with only absences,
+pending duties or no attendance are excluded. Volunteers without required duties
+retain a blank required-attendance percentage. **Most absences** shows only
+officers with missed required duties on finalized dates; pending duties do not
+count as absences. **Most recorded hours** sorts the full officer list by time.
+View selection and search affect only the table and its CSV export; the overview
+always represents the whole period.
 The export contains all matching officers, including those on other table pages.
 The Analytics route and sidebar entry require an admin account.
 

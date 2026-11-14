@@ -19,6 +19,22 @@ function fixture() {
   }, logs: [{ card_uid: 'B', type: 'CLOCK_IN', timestamp: '2026-11-09T10:00:00+08:00' }, { card_uid: 'B', type: 'CLOCK_OUT', timestamp: '2026-11-09T11:00:00+08:00' }] })
 }
 
+function breakdownFixture(allPresent = false) {
+  const roster=[...officers,
+    {card_uid:'C',first_name:'Cara',last_name:'Reyes',position:'Treasurer'},
+    {card_uid:'D',first_name:'Dan',last_name:'Vega',position:'Auditor'},
+    {card_uid:'E',first_name:'Eve',last_name:'Santos',position:'Officer'}]
+  const logs=['A','B',...(allPresent ? ['C'] : [])].flatMap(card_uid=>[
+    {card_uid,type:'CLOCK_IN',timestamp:'2026-11-09T09:00:00+08:00'},
+    {card_uid,type:'CLOCK_OUT',timestamp:'2026-11-09T10:00:00+08:00'},
+  ])
+  return buildAttendanceAnalytics({dateFrom:scope.from,dateTo:scope.to,now:new Date('2026-11-10T12:00:00+08:00'),logs,context:{
+    officers:roster,officerMap:Object.fromEntries(roster.map(o=>[o.card_uid,o])),
+    semesters:[{id:'term',start_date:'2026-11-01',status:'active'}],
+    scheduleVersions:[{semester_id:'term',revision:1,schedule:{1:{type:'scheduled',required_uids:['A','C']},2:{type:'scheduled',required_uids:['E']}}}],
+  }})
+}
+
 test('officer search and sorting preserve overall metrics; expanded rows disclose visit quality', async () => {
   const user = userEvent.setup()
   render(<AttendanceAnalytics data={fixture()} scope={scope} />)
@@ -80,4 +96,47 @@ test('a single-day report labels the daily chart and explains recorded hours',()
   assert.ok(screen.getByRole('heading',{name:'Attendance on Nov 9'}))
   assert.equal(screen.getByRole('group',{name:'Attendance trend bars'}).querySelectorAll('button').length,1)
   assert.ok(screen.getByText(/Total completed visit time/))
+})
+
+test('the default attendance view includes assigned attendees and volunteers without idle, absent-only or pending-only officers',async()=>{
+  const user=userEvent.setup()
+  render(<AttendanceAnalytics data={breakdownFixture()} scope={scope} />)
+  const table=screen.getByRole('table')
+  assert.ok(within(table).getByText('Ana Cruz'))
+  assert.ok(within(table).getByText('Ben Diaz'))
+  for(const name of ['Cara Reyes','Dan Vega','Eve Santos']) assert.equal(within(table).queryByText(name),null)
+  assert.match(within(table).getAllByRole('row')[1].textContent,/Ana Cruz/)
+  const volunteer=within(table).getByRole('button',{name:/Ben Diaz/}).closest('tr')
+  assert.match(volunteer.textContent,/—/,'volunteers must not receive an invented required-attendance percentage')
+  await user.click(screen.getByRole('combobox',{name:'Sort officers'}))
+  assert.equal(screen.queryByRole('option',{name:/Name A/}),null)
+})
+
+test('the absence view and export include only finalized missed required duties and preserve overview metrics',async t=>{
+  const user=userEvent.setup()
+  let blob
+  t.mock.method(URL,'createObjectURL',value=>{blob=value;return 'blob:absences'})
+  t.mock.method(URL,'revokeObjectURL',()=>{})
+  t.mock.method(window.HTMLAnchorElement.prototype,'click',()=>{})
+  render(<AttendanceAnalytics data={breakdownFixture()} scope={scope} />)
+  const overview=screen.getByRole('region',{name:'Required attendance'}).textContent
+  await user.click(screen.getByRole('combobox',{name:'Sort officers'}))
+  await user.click(screen.getByRole('option',{name:'Most absences'}))
+  const table=screen.getByRole('table')
+  assert.ok(within(table).getByText('Cara Reyes'))
+  for(const name of ['Ana Cruz','Ben Diaz','Dan Vega','Eve Santos']) assert.equal(within(table).queryByText(name),null)
+  assert.equal(screen.getByRole('region',{name:'Required attendance'}).textContent,overview)
+  await user.click(screen.getByRole('button',{name:'Export CSV'}))
+  const csv=await blob.text()
+  assert.ok(csv.includes('Cara Reyes'))
+  for(const name of ['Ana Cruz','Ben Diaz','Dan Vega','Eve Santos']) assert.equal(csv.includes(name),false)
+})
+
+test('pending duties and volunteers alone cannot populate the absences list',async()=>{
+  const user=userEvent.setup()
+  render(<AttendanceAnalytics data={breakdownFixture(true)} scope={scope} />)
+  await user.click(screen.getByRole('combobox',{name:'Sort officers'}))
+  await user.click(screen.getByRole('option',{name:'Most absences'}))
+  assert.ok(screen.getByText('No missed required duties for this period.'))
+  assert.equal(screen.getByRole('button',{name:'Export CSV'}).disabled,true)
 })
