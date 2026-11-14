@@ -25,7 +25,7 @@ export function councilPositions(semester, profiles = []) {
 export const councilMembers = semester => servingMembers(semester).map(member => ({card_uid:member.card_uid,position:member.position}))
 export function councilIssues(members, positions, name) {
   const issues=[]
-  if (!name.trim() || name.length>150) issues.push('Enter a council name (up to 150 characters).')
+  if (!name.trim() || name.length>150) issues.push('Enter a term name (up to 150 characters).')
   const names=positions.map(position=>position.name.trim().toLowerCase())
   if (names.some(name=>!name) || new Set(names).size!==names.length) issues.push('Use a unique name for each position.')
   if (new Set(members.map(member=>member.card_uid)).size!==members.length) issues.push('Select each officer only once.')

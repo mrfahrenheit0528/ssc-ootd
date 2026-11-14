@@ -19,10 +19,11 @@ export default function CouncilRosterEditor({ profiles, members, onMembersChange
   const visible = profiles.filter(profile => `${profile.first_name} ${profile.last_name} ${profile.position || ''}`.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
   return <div className="space-y-5">
-    <label className="block"><span className="label">Council name</span><input className="input" value={name} maxLength={150} disabled={disabled} onChange={event => onNameChange(event.target.value)} placeholder="e.g. SSC Council AY 2026–2027" /></label>
+    <label className="block"><span className="label">Term name</span><input className="input" value={name} maxLength={150} disabled={disabled} onChange={event => onNameChange(event.target.value)} placeholder="e.g. SSC Term AY 2026–2027" /></label>
     <section className="space-y-3" aria-label="Council positions">
       <div className="flex justify-between items-center gap-3"><h3 className="font-semibold text-white">Positions & officer limits</h3><button type="button" className="btn-secondary text-xs" disabled={disabled} onClick={() => onPositionsChange([...positions, { name: '', capacity: 1, group: 'Council positions' }])}><Plus className="w-4 h-4" />Add position</button></div>
       <p className="text-xs text-slate-400">Set the number of officers for each position. Leave the limit blank for unlimited seats. The order here also sets the order in Day Config.</p>
+      <p className="text-xs text-slate-400">Directory group organizes positions under headings in Day Config, such as Executive officers or Representatives. It does not change attendance rules or officer limits.</p>
       <div className="overflow-x-auto rounded-xl border border-white/10"><table className="w-full text-sm"><thead className="bg-white/5 text-xs text-slate-400"><tr><th className="p-3 text-left">Position</th><th className="p-3 text-left">Directory group</th><th className="p-3 text-left">Limit</th><th className="p-3">Selected</th><th className="p-3">Order / remove</th></tr></thead><tbody>
         {positions.map((position, index) => {
           const count = members.filter(member => member.position === position.name).length

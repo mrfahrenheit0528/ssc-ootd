@@ -5,7 +5,7 @@ Apply [202611150002_semester_councils.sql](../supabase/migrations/202611150002_s
 ## Set up the current council
 
 1. Open **Officer Roster → Manage council & positions** as an admin.
-2. Give the council a name, such as its academic year.
+2. Enter a **Term name**, such as its academic year.
 3. Set each position's name, directory group, and officer limit. Blank means unlimited; zero means no seats. Add/remove positions and use the arrows to change their directory order.
 4. Select the officers serving this semester and choose a position for each. Deselect outgoing officers. Existing profiles, including previously inactive officers and their NFC cards, can be reused.
 5. **Save council**. The server rejects duplicate memberships, invalid positions, and counts exceeding a position's limit.
@@ -22,7 +22,7 @@ End the current semester, then open **Semesters → Start a New Semester**. Choo
 
 | Choice | Result |
 |---|---|
-| **Same council** | Copy the serving members, their positions, council name, and position limits into the new semester. |
+| **Same council** | Copy the serving members, their positions, term name, and position limits into the new semester. |
 | **New council** | Start with the previous roster as a draft. Change the name, positions and limits; deselect outgoing officers; select returning officers; add new profiles. |
 
 The new semester must start after the earlier semesters end. The existing database constraint still permits only one active semester. Carrying forward creates an independent copy: editing the second semester does not rewrite the first. Configure the new semester's weekly assignments in **Day Config** after creation; weekly schedules are not automatically copied.
