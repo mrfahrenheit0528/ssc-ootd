@@ -131,3 +131,12 @@ test('CSV import uses one audited server batch and preserves a failed response',
   const failing = repository(() => json({ code: 'P0001', message: 'Row 2: overlaps existing attendance' }, 400))
   await assert.rejects(failing.importAttendanceCSV('term', rows, 'Paper logbook'), error => error.code === 'P0001' && error.message.includes('overlaps existing'))
 })
+
+test('whole-semester scheduling uses the explicit scoped RPC while ordinary saves preserve history', async () => {
+  const calls=[]
+  const repo=repository((url,options)=>{ calls.push([url.pathname,JSON.parse(options.body)]);return json('revision-id') })
+  await repo.saveWeek('term',{})
+  await repo.saveWeek('term',{},'whole_semester')
+  assert.deepEqual(calls[0],['/rest/v1/rpc/save_semester_schedule',{p_semester_id:'term',p_schedule:{}}])
+  assert.deepEqual(calls[1],['/rest/v1/rpc/save_semester_schedule_scoped',{p_semester_id:'term',p_schedule:{},p_scope:'whole_semester'}])
+})

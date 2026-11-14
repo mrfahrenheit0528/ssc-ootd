@@ -40,6 +40,12 @@ def initialize():
         conn.execute('GRANT USAGE ON SCHEMA public,auth TO anon,authenticated')
         conn.execute('CREATE PUBLICATION supabase_realtime')
         for migration in sorted((Path(__file__).resolve().parents[1] / 'supabase/migrations').glob('*.sql')):
+            if migration.name.startswith('202611140001'):
+                conn.execute("INSERT INTO public.semesters(id,name,start_date,end_date,status) VALUES ('history-upgrade','Historical fixture','2020-08-01','2020-12-31','ended')")
+                version=conn.execute("INSERT INTO public.semester_schedules(semester_id,revision,schedule,created_at) VALUES ('history-upgrade',1,'{}','2020-01-01T00:00:00Z') RETURNING id").fetchone()[0]
+                for day,stamp in [('2020-09-01','2020-01-01T00:00:00Z'),('2020-09-02','2020-01-01T00:00:00Z'),('2020-09-03','2020-01-02T00:00:00Z')]:
+                    conn.execute("INSERT INTO public.calendar_days(semester_id,date,required_uids,schedule_version_id,updated_at) VALUES ('history-upgrade',%s,'[]',%s,%s)",(day,version,stamp))
+                conn.execute("INSERT INTO public.day_config(id,data) VALUES ('2020-09-02','{\"required_uids\":[]}')")
             if migration.name.startswith('202611120001'):
                 conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES ('PRECARD1','Existing','Officer','Secretary')")
             if migration.name.startswith('202611100001'):
@@ -50,6 +56,11 @@ def initialize():
                 conn.execute("INSERT INTO public.day_config(id,data) VALUES (((now() AT TIME ZONE 'Asia/Manila')::date+1)::text,%s)",(Jsonb({'type':'holiday','note':'School closure'}),))
                 conn.execute("INSERT INTO public.day_config(id,data) VALUES (((now() AT TIME ZONE 'Asia/Manila')::date+2)::text,%s)",(Jsonb({'type':'regular','note':'Note only'}),))
             conn.execute(migration.read_text(encoding='utf-8'))
+            if migration.name.startswith('202611140001'):
+                assert conn.execute("SELECT inherited_unassigned FROM public.calendar_days WHERE semester_id='history-upgrade' ORDER BY date").fetchall()==[(True,),(False,),(False,)]
+                conn.execute("UPDATE public.calendar_days SET note='Explicit edit' WHERE semester_id='history-upgrade' AND date='2020-09-01'")
+                assert conn.execute("SELECT inherited_unassigned FROM public.calendar_days WHERE semester_id='history-upgrade' AND date='2020-09-01'").fetchone()==(False,)
+                conn.execute("DELETE FROM public.semesters WHERE id='history-upgrade'; DELETE FROM public.day_config WHERE id='2020-09-02'")
             if migration.name.startswith('202611120001'):
                 assert conn.execute("SELECT card_uid,nfc_uid FROM public.officers WHERE card_uid='PRECARD1'").fetchone()==('PRECARD1','PRECARD1')
                 conn.execute("DELETE FROM public.officers WHERE card_uid='PRECARD1'")
@@ -282,6 +293,50 @@ class DatabaseTests(unittest.TestCase):
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             self.conn.execute("SELECT public.save_semester_schedule('term',%s)",(Jsonb(week),))
 
+    def test_whole_semester_schedule_repairs_history_and_keeps_manual_calendar_exceptions(self):
+        week=self.term()
+        blank={str(day):{'type':'unscheduled','required_uids':[]} for day in range(7)}
+        first=self.conn.execute("SELECT public.save_semester_schedule('term',%s)",(Jsonb(blank),)).fetchone()[0]
+        self.conn.execute('RESET ROLE')
+        # Reproduce an untouched legacy [] placeholder, an explicit empty list,
+        # and a future day pinned to an earlier version.
+        for offset,day_type,required,legacy in [(-1,'regular',[],True),(-2,'regular',[],False),(-3,'no_classes',None,False),(-4,'optional',None,False),(1,'regular',None,False)]:
+            self.conn.execute("INSERT INTO public.calendar_days(semester_id,date,type,note,required_uids,schedule_version_id,inherited_unassigned) VALUES ('term',(now() AT TIME ZONE 'Asia/Manila')::date+%s,%s,'Keep note',%s,%s,%s)",(offset,day_type,Jsonb(required) if required is not None else None,first,legacy))
+        self.conn.execute("INSERT INTO public.attendance_logs(card_uid,officer_name,type,timestamp) VALUES ('AAAA1111','Ana Cruz','CLOCK_IN',(((now() AT TIME ZONE 'Asia/Manila')::date-1)+time '09:00') AT TIME ZONE 'Asia/Manila'),('AAAA1111','Ana Cruz','CLOCK_OUT',(((now() AT TIME ZONE 'Asia/Manila')::date-1)+time '17:00') AT TIME ZONE 'Asia/Manila')")
+        before=self.conn.execute('SELECT to_jsonb(a) FROM public.attendance_logs a ORDER BY id').fetchall()
+        self.role(ADMIN)
+        second=self.conn.execute("SELECT public.save_semester_schedule_scoped('term',%s,'whole_semester')",(Jsonb(week),)).fetchone()[0]
+        rows=self.conn.execute("SELECT (date-(now() AT TIME ZONE 'Asia/Manila')::date)::integer,type,note,required_uids,schedule_version_id,inherited_unassigned FROM public.calendar_days WHERE semester_id='term'").fetchall()
+        mapped={row[0]:row[1:] for row in rows}
+        self.assertEqual(mapped[-1],('regular','Keep note',None,second,False))
+        self.assertEqual(mapped[-2],('regular','Keep note',[],second,False))
+        self.assertEqual(mapped[-3],('no_classes','Keep note',None,second,False))
+        self.assertEqual(mapped[-4],('optional','Keep note',None,second,False))
+        self.assertEqual(mapped[1][-2],second)
+        self.assertTrue(all(row[4]==second for row in rows))
+        self.assertEqual(self.conn.execute('SELECT schedule FROM public.semester_schedules WHERE id=%s',(first,)).fetchone()[0],blank)
+        self.assertEqual(self.conn.execute('SELECT application_scope,created_by FROM public.semester_schedules WHERE id=%s',(second,)).fetchone(),('whole_semester',UUID(ADMIN)))
+        self.assertEqual(self.conn.execute('SELECT to_jsonb(a) FROM public.attendance_logs a ORDER BY id').fetchall(),before)
+
+    def test_scoped_today_save_preserves_historical_revisions(self):
+        week=self.term()
+        first=self.conn.execute("SELECT public.save_semester_schedule('term',%s)",(Jsonb(week),)).fetchone()[0]
+        changed={str(day):{'type':'unscheduled','required_uids':[]} for day in range(7)}
+        second=self.conn.execute("SELECT public.save_semester_schedule_scoped('term',%s,'today_onward')",(Jsonb(changed),)).fetchone()[0]
+        self.assertNotEqual(first,second)
+        self.assertEqual(self.conn.execute("SELECT DISTINCT schedule_version_id FROM public.calendar_days WHERE semester_id='term'").fetchall(),[(first,)])
+
+    def test_whole_semester_schedule_is_admin_only_and_archived_terms_stay_read_only(self):
+        week=self.term();self.role(OFFICER)
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
+            self.conn.execute("SELECT public.save_semester_schedule_scoped('term',%s,'whole_semester')",(Jsonb(week),))
+        self.role(ADMIN)
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():
+            self.conn.execute("SELECT public.save_semester_schedule_scoped('term',%s,'invalid')",(Jsonb(week),))
+        self.conn.execute("SELECT public.archive_semester('term',(now() AT TIME ZONE 'Asia/Manila')::date)")
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():
+            self.conn.execute("SELECT public.save_semester_schedule_scoped('term',%s,'whole_semester')",(Jsonb(week),))
+
     def test_archived_schedule_cannot_change(self):
         week=self.term();self.conn.execute("SELECT public.archive_semester('term',(now() AT TIME ZONE 'Asia/Manila')::date)")
         with self.assertRaises(psycopg.errors.RaiseException):
@@ -349,7 +404,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0],2)
 
     def test_reader_snapshot_acknowledges_tombstones_and_current_manual_events(self):
-        stamp=datetime.now(timezone.utc)-timedelta(minutes=2)
+        stamp=self.conn.execute('SELECT now()').fetchone()[0]
         self.role(anonymous=True);event=self.event(timestamp=stamp.isoformat());self.ingest([event]);self.role(ADMIN)
         self.conn.execute("SELECT public.delete_attendance(%s,'Wrong card scan')",(event['event_id'],))
         self.conn.execute("SELECT public.correct_attendance(null,'AAAA1111','CLOCK_OUT',%s,false,'Manual clock out')",(stamp,))
@@ -415,7 +470,7 @@ class DatabaseTests(unittest.TestCase):
         self.role(ADMIN)
         key=self.conn.execute('SELECT public.save_officer_profile(null,%s,%s,true)',('BBBB2222',Jsonb({'first_name':'Sample','last_name':'Current','position':'Officer'}))).fetchone()[0]
         self.role(anonymous=True)
-        event=self.event(card_uid='BBBB2222',timestamp=(datetime.now(timezone.utc)-timedelta(minutes=1)).isoformat())
+        event=self.event(card_uid='BBBB2222',timestamp=self.conn.execute('SELECT now()').fetchone()[0].isoformat())
         self.ingest([event])
         context=self.conn.execute('SELECT public.reader_context(%s,%s,%s)',(DEVICE,TOKEN,Jsonb([event['event_id']]))).fetchone()[0]
         self.assertIn('BBBB2222',[o['card_uid'] for o in context['officers']])

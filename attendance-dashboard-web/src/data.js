@@ -111,8 +111,9 @@ export function createDataAccess(getClient = client) {
   async function importAttendanceCSV(semesterId, rows, reason) {
     return check(await getClient().rpc('import_attendance_csv', { p_semester_id: semesterId, p_rows: wire(rows), p_reason: reason }))
   }
-  async function saveWeek(semesterId, schedule) {
-    return check(await getClient().rpc('save_semester_schedule', { p_semester_id: semesterId, p_schedule: wire(schedule) }))
+  async function saveWeek(semesterId, schedule, scope = 'today_onward') {
+    if (scope === 'today_onward') return check(await getClient().rpc('save_semester_schedule', { p_semester_id: semesterId, p_schedule: wire(schedule) }))
+    return check(await getClient().rpc('save_semester_schedule_scoped', { p_semester_id: semesterId, p_schedule: wire(schedule), p_scope: scope }))
   }
   async function saveCalendarDay(semesterId, date, type, note, requiredUids) {
     return check(await getClient().rpc('save_calendar_day', { p_semester_id: semesterId, p_date: date, p_type: type, p_note: note, p_required_uids: requiredUids ?? null }))

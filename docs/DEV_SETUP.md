@@ -124,6 +124,17 @@ capture is enabled only after `accept_unknown_cards: true` is received and
 cached; old servers retain the known-card-only behavior. Update/restart the
 reader together with this migration and dashboard upgrade.
 
+`save_semester_schedule_scoped` adds an explicit `whole_semester` application;
+the original two-argument save RPC still preserves history. The new revision's
+`application_scope`, `created_by` and `created_at` record the action. The history
+migration marks untouched generated empty lists with `inherited_unassigned`
+using the original migration timestamps and excluding legacy date overrides.
+A calendar-edit trigger clears that marker on any explicit type/note/list save.
+Whole-semester application repoints dates within the term and clears only those
+generated empty lists. Manual lists and day types continue to override weekly
+assignments. No attendance events are rewritten; reports resolve the updated
+assignments on refresh. See [SCHEDULE_HISTORY.md](SCHEDULE_HISTORY.md).
+
 The dashboard uses Supabase Auth sessions and row-level security. Changing
 UI visibility alone never grants database access. Officer deletion deactivates
 the roster entry; attendance and archived photos are retained.

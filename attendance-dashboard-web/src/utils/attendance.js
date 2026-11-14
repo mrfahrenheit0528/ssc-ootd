@@ -24,15 +24,18 @@ export function resolveDay(dayValue, context = {}) {
 }
 // Preview exactly the dates a weekly save can change. Saved history and explicit
 // calendar assignments still resolve normally; this never mutates fetched data.
-export function resolveDayWithDraft(dayValue, context = {}, draftSchedule, today = dateKey()) {
+export function resolveDayWithDraft(dayValue, context = {}, draftSchedule, today = dateKey(), scope = 'today_onward') {
   const saved = resolveDay(dayValue, context)
   const semester = saved.semester
   if (!draftSchedule || semester?.status !== 'active' || semester.id !== context.selectedSemesterId) return saved
   const versions = (context.scheduleVersions ?? []).filter(v => v.semester_id === semester.id)
   const calendar = (context.calendarDays ?? []).find(d => d.semester_id === semester.id && d.date === saved.date)
-  if (calendar?.schedule_version_id || (versions.length > 0 && saved.date < today)) return saved
+  const includeHistory = scope === 'whole_semester'
+  if (!includeHistory && (calendar?.schedule_version_id || (versions.length > 0 && saved.date < today))) return saved
   return resolveDay(saved.date, {
     ...context,
+    calendarDays: includeHistory && calendar?.inherited_unassigned
+      ? context.calendarDays.map(row => row === calendar ? { ...row, required_uids: null } : row) : context.calendarDays,
     scheduleVersions: [
       ...(context.scheduleVersions ?? []).filter(v => v.semester_id !== semester.id),
       { id: 'weekly-draft', semester_id: semester.id, revision: 1, schedule: draftSchedule },

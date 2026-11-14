@@ -96,3 +96,21 @@ test('weekly preview respects explicitly pinned calendar revisions',()=>{
   const ctx={...context,selectedSemesterId:'term',calendarDays:[{semester_id:'term',date:'2026-11-10',type:'regular',schedule_version_id:'v1'}]}
   assert.deepEqual(resolveDayWithDraft('2026-11-10',ctx,emptyWeek(),'2026-11-10').required_uids,['A'])
 })
+
+test('whole-semester preview replaces historical pins and inherited empty lists while preserving manual exceptions',()=>{
+  const ctx={...context,selectedSemesterId:'term',calendarDays:[
+    {semester_id:'term',date:'2026-11-09',type:'regular',schedule_version_id:'v1',required_uids:[],inherited_unassigned:true},
+  ]}
+  assert.deepEqual(resolveDayWithDraft('2026-11-09',ctx,week,'2026-11-10').required_uids,[])
+  assert.deepEqual(resolveDayWithDraft('2026-11-09',ctx,week,'2026-11-10','whole_semester').required_uids,['A'])
+  assert.deepEqual(ctx.calendarDays[0].required_uids,[], 'preview must not modify fetched calendar data')
+  ctx.calendarDays[0].inherited_unassigned=false
+  assert.deepEqual(resolveDayWithDraft('2026-11-09',ctx,week,'2026-11-10','whole_semester').required_uids,[])
+  ctx.calendarDays[0].required_uids=['B']
+  assert.deepEqual(resolveDayWithDraft('2026-11-09',ctx,week,'2026-11-10','whole_semester').required_uids,['B'])
+  ctx.calendarDays[0].required_uids=null
+  for(const type of ['optional','no_classes']) {
+    ctx.calendarDays[0].type=type
+    assert.deepEqual(resolveDayWithDraft('2026-11-09',ctx,week,'2026-11-10','whole_semester').required_uids,[])
+  }
+})

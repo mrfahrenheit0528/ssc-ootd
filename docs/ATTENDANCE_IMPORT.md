@@ -96,6 +96,9 @@ Each new session creates a clock-in and clock-out with deterministic IDs,
 audit record containing actor, reason, semester and source metadata. Later
 corrections and deletion tombstones are preserved; reimporting the original CSV
 does not restore them. Imported sessions use the normal reporting/calendar rules.
+If earlier imported visits appear as voluntary because their dates have no
+weekly duties, use [whole-semester application](SCHEDULE_HISTORY.md) to apply
+the intended assignments, then refresh Analytics. Do not re-import those visits.
 
 ## Link cards and earlier unknown scans
 

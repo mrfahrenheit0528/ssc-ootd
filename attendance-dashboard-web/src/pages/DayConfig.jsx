@@ -65,7 +65,7 @@ export default function DayConfig() {
   const generation = useRef(0)
   const term = semesters.find(s => s.id === semesterId)
   const readOnly = term?.status !== 'active'
-  const { schedule, editing, dirty, resetSchedule, beginEditing, cancelEditing, updateDay } = useWeeklyScheduleDraft({ readOnly, saving })
+  const { schedule, editing, dirty, scope, setScope, resetSchedule, beginEditing, cancelEditing, updateDay } = useWeeklyScheduleDraft({ readOnly, saving })
   useEffect(() => { if (!semesterId && activeSemester) setSemesterId(activeSemester.id) }, [activeSemester,semesterId])
   const load = async () => {
     const current = ++generation.current
@@ -90,8 +90,8 @@ export default function DayConfig() {
   const save = async () => {
     if (readOnly || saving || !editing || !dirty) return
     setSaving(true)
-    try { await saveWeek(semesterId,schedule); resetSchedule(schedule); await load(); toast.success('Semester schedule saved and locked. Earlier days retain their previous assignments.') }
-    catch (e) { toast.error(e.message) } finally { setSaving(false) }
+    try { await saveWeek(semesterId,schedule,scope); resetSchedule(schedule); await load(); toast.success(scope === 'whole_semester' ? 'Schedule applied to the whole semester and locked. Refresh Analytics to recalculate earlier attendance.' : 'Semester schedule saved and locked. Earlier days retain their previous assignments.') }
+    catch (e) { toast.error(e.code === 'PGRST202' ? 'Whole-semester scheduling needs the new 202611140001_schedule_history.sql migration. Apply it once, then retry.' : e.message) } finally { setSaving(false) }
   }
   const days = eachDayOfInterval({start:startOfMonth(month),end:endOfMonth(month)})
   return <div className="space-y-6 max-w-5xl animate-slide-up">
@@ -108,25 +108,30 @@ export default function DayConfig() {
       <section className="card p-5 space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Weekly recurring assignments</h2>
         <div className="flex flex-wrap items-center gap-2">
           {!editing && <span className="inline-flex items-center gap-1.5 text-xs text-slate-400"><Lock className="w-3.5 h-3.5" />Locked</span>}
-          {!readOnly && (editing ? <><button className="btn-secondary" disabled={saving} onClick={cancelEditing}>Cancel</button><button className="btn-primary" disabled={saving || !dirty} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save changes'}</button></> : <button className="btn-primary" disabled={saving} onClick={beginEditing}><Pencil className="w-4 h-4" />Edit schedule</button>)}
+          {!readOnly && (editing ? <><button className="btn-secondary" disabled={saving} onClick={cancelEditing}>Cancel</button><button className="btn-primary" disabled={saving || !dirty} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save changes'}</button></> : <button className="btn-primary" disabled={saving} onClick={() => beginEditing(context.scheduleVersions.some(version => version.semester_id === semesterId && version.created_by) ? 'today_onward' : 'whole_semester')}><Pencil className="w-4 h-4" />Edit schedule</button>)}
         </div>
       </div>
         <p className="text-xs text-slate-400">Applies to {term?.name}. Scheduled days require the selected officers; Unscheduled days have no recurring duty. Revisions are retained automatically.</p>
         {!readOnly && <p role="status" className={`rounded-lg px-3 py-2 text-xs ${editing ? 'bg-brand-500/10 text-brand-200' : 'bg-white/5 text-slate-400'}`}>{editing ? 'Editing is unlocked. Save your changes to lock the schedule, or cancel to restore the saved assignments.' : 'The saved schedule is locked to prevent accidental ticks. Choose Edit schedule to make changes.'}</p>}
+        {editing && <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 p-4 space-y-2">
+          <label className="label" htmlFor="schedule-scope">Apply schedule to</label>
+          <Select id="schedule-scope" className="input max-w-md" value={scope} disabled={saving} onChange={event => setScope(event.target.value)}><option value="today_onward">Today and future dates</option><option value="whole_semester">Whole semester (including earlier dates)</option></Select>
+          <p className="text-xs text-slate-400">{scope === 'whole_semester' ? `Applies from ${term.start_date}${term.end_date ? ` through ${term.end_date}` : ' through the rest of this semester'}. Earlier attendance will be recalculated against these assignments. No Classes, Optional, and custom date-specific officer lists stay in place.` : 'Earlier dates retain their saved assignments. Choose Whole semester to apply this schedule to imported historical attendance.'}</p>
+        </div>}
         <WeeklyAssignmentGrid officers={context.officers} schedule={schedule} disabled={readOnly || saving || !editing} onChange={updateDay} />
       </section>
         ) },
         { value:'calendar', label:'Calendar day types', icon:CalendarDays, content:(
       <section className="card p-4 space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Calendar day types</h2><div className="flex items-center gap-3"><button className="btn-secondary p-2" aria-label="Previous month" onClick={() => setMonth(m => subMonths(m,1))}><ChevronLeft /></button><span>{format(month,'MMMM yyyy')}</span><button className="btn-secondary p-2" aria-label="Next month" onClick={() => setMonth(m => addMonths(m,1))}><ChevronRight /></button></div></div>
-        <p className="text-xs text-slate-400">Weekly edits appear here immediately for today and future dates. Earlier dates keep their saved assignments. Save weekly changes before editing an individual date.</p>
+        <p className="text-xs text-slate-400">Weekly edits preview the selected application range. Today and future dates preserves earlier assignments; Whole semester includes earlier dates. Save weekly changes before editing an individual date.</p>
         {dirty && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-300 animate-fade-in">
-          <span>Preview of unsaved weekly changes. Click Save to apply them.</span>
+          <span>Preview of unsaved weekly changes: {scope === 'whole_semester' ? 'whole semester, including earlier dates' : 'today and future dates'}. Click Save to apply them.</span>
           <div className="flex gap-2"><button className="btn-secondary" disabled={saving} onClick={cancelEditing}>Cancel changes</button><button className="btn-primary" disabled={readOnly || saving || !editing} onClick={save}><Save className="w-4 h-4" />{saving ? 'Saving...' : 'Save changes'}</button></div>
         </div>}
         <div className="space-y-2"><DayTypeLegend /><ScheduleLegend /></div>
         <div key={`${semesterId}|${format(month,'yyyy-MM')}`} className="calendar-grid calendar-grid-enter grid grid-cols-7 gap-1 sm:gap-2">{WEEKDAYS.map(d => <div key={d} className="text-xs text-center text-slate-400">{d.slice(0,3)}</div>)}{Array.from({length:days[0].getDay()},(_,i) => <div key={`pad-${i}`} />)}{days.map(day => {
           const ds = format(day,'yyyy-MM-dd')
-          const cfg = dirty ? resolveDayWithDraft(ds,context,schedule) : resolveDay(ds,context)
+          const cfg = dirty ? resolveDayWithDraft(ds,context,schedule,dateKey(),scope) : resolveDay(ds,context)
           const outside = ds < term.start_date || (term.end_date && ds > term.end_date)
           return <button key={ds} data-day-type={outside ? undefined : cfg.type} disabled={outside || readOnly || saving} onClick={() => {if(dirty) {toast.error('Save weekly assignments before editing an individual date.');return} setSelectedDay(ds)}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} dayType={cfg.type} /></span><span className="block text-[10px] sm:text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="hidden sm:block text-xs text-brand-300">{cfg.required_uids.length} required</span>}</button>
         })}</div>

@@ -8,6 +8,11 @@ Use **Analyze attendance** after editing dates and **Refresh report** to fetch
 new uploads or corrections. The displayed time identifies the report snapshot;
 this page does not poll for changes in the background.
 
+If imported visits appear as voluntary with little or no required attendance,
+check the calendar's historical assignments. Follow [SCHEDULE_HISTORY.md](SCHEDULE_HISTORY.md)
+to apply the intended weekly schedule to the whole semester, then refresh this
+report. Existing visits and recorded hours are retained; re-import is unnecessary.
+
 The report includes animated summary cards, an interactive attendance trend,
 finalized attendance by weekday, record-quality insights, and a searchable officer
 table. Select an officer to expand visit details. Search and sorting affect only

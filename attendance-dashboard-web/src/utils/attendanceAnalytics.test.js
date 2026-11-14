@@ -27,6 +27,24 @@ test('repeat visits count once toward assigned attendance and sum completed time
   assert.equal(result.officers.find(o => o.uid === 'A').assignedDays, 1)
 })
 
+test('applying weekly duties to historical import dates changes fulfillment without losing visits or recorded hours', () => {
+  const imported=[event('A','CLOCK_IN','09:00:00',{manually_edited:true}),event('A','CLOCK_OUT','17:00:00',{manually_edited:true})]
+  const before={...context,calendarDays:[{semester_id:'term',date:'2026-11-09',type:'regular',schedule_version_id:'empty',required_uids:[],inherited_unassigned:true}],
+    scheduleVersions:[...context.scheduleVersions,{id:'empty',semester_id:'term',revision:0,schedule:emptyWeek()}]}
+  const voluntary=analyze({logs:imported,context:before})
+  assert.equal(voluntary.summary.voluntaryDays,1)
+  assert.equal(voluntary.summary.required,0)
+  const after={...before,calendarDays:[{...before.calendarDays[0],schedule_version_id:'v1',required_uids:null,inherited_unassigned:false}]}
+  const assigned=analyze({logs:imported,context:after})
+  assert.equal(assigned.summary.present,1)
+  assert.equal(assigned.summary.required,1)
+  assert.equal(assigned.summary.rate,100)
+  assert.equal(assigned.summary.voluntaryDays,0)
+  assert.equal(assigned.summary.visits,voluntary.summary.visits)
+  assert.equal(assigned.summary.seconds,28800)
+  assert.equal(assigned.summary.seconds,voluntary.summary.seconds)
+})
+
 test('volunteers cannot fill another officer duty slot, and repeat voluntary visits count one day', () => {
   const result = analyze({ logs: [event('B', 'CLOCK_IN', '09:00:00'), event('B', 'CLOCK_OUT', '10:00:00'), event('B', 'CLOCK_IN', '11:00:00')] })
   assert.equal(result.summary.rate, 0)

@@ -125,6 +125,15 @@ while retaining its configuration and SQLite database. Follow
 Existing projects only need this new file if the two earlier migrations already
 completed and this import migration has not been run yet.
 
+## 2C. Enable whole-semester schedule application
+
+After Step 2B, run
+[202611140001_schedule_history.sql](../supabase/migrations/202611140001_schedule_history.sql)
+once. This adds the explicit Whole semester option for applying assignments to
+earlier dates. Existing projects whose first three migrations already ran only
+need this new file. Follow [SCHEDULE_HISTORY.md](SCHEDULE_HISTORY.md) to apply an
+existing schedule and refresh historical Analytics; no CSV re-import is needed.
+
 ## 3. Set up website sign-in accounts
 
 ### 3A. Turn off public signups

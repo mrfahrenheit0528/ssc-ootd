@@ -6,6 +6,8 @@ Your existing `.env`, reader registration, and `config.json` stay in place.
 For the later paper-logbook CSV import, optional NFC profiles, and pending card
 linking, apply the separate new migration using
 [ATTENDANCE_IMPORT.md](ATTENDANCE_IMPORT.md) after this scheduling upgrade.
+For applying a configured schedule to earlier semester dates, use the later
+[schedule history upgrade](SCHEDULE_HISTORY.md).
 Scheduling stays **admin only**. There is no separate secretary sign-in role.
 
 ## 1. Finish uploading, then stop both programs
@@ -77,19 +79,22 @@ files on every reader PC before restarting those readers.
    changes officers visible in that search, retaining hidden selections.
    Existing inactive assignees remain visible so you can remove them; they
    cannot be assigned to additional days. Profiles without NFC cards are included.
-5. The calendar immediately previews type and officer changes for today and
-   future dates. An amber message identifies unsaved changes. Earlier dates
-   retain their saved assignments; No Classes, Optional, and custom date lists
-   still take precedence.
+5. Choose **Apply schedule to**. **Today and future dates** retains earlier
+   assignments. **Whole semester (including earlier dates)** also applies to
+   historical attendance and is preselected for the first admin setup. The
+   calendar previews that range. No Classes, Optional and custom lists retain
+   precedence. Whole semester requires the [later migration](SCHEDULE_HISTORY.md).
 6. Click **Save changes** in either tab to apply the changes and lock the
    schedule again. **Cancel** restores the saved assignments and locks editing
    without saving. Reverting every change clears the Unsaved badge automatically;
-   Save changes is disabled when the schedule matches the saved version. Save
+   Save changes is disabled when the schedule matches the saved version unless
+   Whole semester is selected to reapply it across historical dates. Save
    weekly edits before opening an individual date so those edits are retained.
 
 There is no Effective From date. The schedule belongs to the selected semester.
-The first schedule of a new semester covers that semester. Later saves retain
-previous dates' assignments and update today and future dates. Calendar-specific
+The first schedule of a new semester covers that semester. Routine later saves
+retain history; explicitly choosing Whole semester replaces the weekly revision
+for earlier dates too. Calendar-specific
 officer lists continue to take precedence. Archived semesters are read-only;
 reactivating one is an explicit admin action.
 
