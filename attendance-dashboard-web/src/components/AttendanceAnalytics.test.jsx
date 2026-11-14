@@ -72,3 +72,12 @@ test('analytics CSV exports the filtered officers, exact totals, and safe spread
   assert.equal(csv.includes('Ana Cruz'), false)
   assert.equal(downloaded, 'officer_analytics_2026-11-09_2026-11-10.csv')
 })
+
+test('a single-day report labels the daily chart and explains recorded hours',()=>{
+  const data=fixture()
+  data.daily=data.daily.slice(0,1)
+  render(<AttendanceAnalytics data={data} scope={{from:scope.from,to:scope.from}} />)
+  assert.ok(screen.getByRole('heading',{name:'Attendance on Nov 9'}))
+  assert.equal(screen.getByRole('group',{name:'Attendance trend bars'}).querySelectorAll('button').length,1)
+  assert.ok(screen.getByText(/Total completed visit time/))
+})

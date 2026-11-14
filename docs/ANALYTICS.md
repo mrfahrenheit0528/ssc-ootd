@@ -8,6 +8,12 @@ Use **Analyze attendance** after editing dates and **Refresh report** to fetch
 new uploads or corrections. The displayed time identifies the report snapshot;
 this page does not poll for changes in the background.
 
+For one school date, set **Analysis view > Single day**, choose **Date**, then
+click **Analyze day**. Cards, charts, the officer breakdown and CSV export all
+use that day in Asia/Manila. **Today** selects this view automatically; **Last 7
+days** and **Last 30 days** return to Date range. You can also choose Date range
+to enter From and To manually. Semester boundaries still apply.
+
 If imported visits appear as voluntary with little or no required attendance,
 check the calendar's historical assignments. Follow [SCHEDULE_HISTORY.md](SCHEDULE_HISTORY.md)
 to apply the intended weekly schedule to the whole semester, then refresh this
@@ -38,6 +44,9 @@ The Analytics route and sidebar entry require an admin account.
 - **Recorded hours:** summed paired clock-in/out durations. Automatic 9 PM
   clock-outs are included and disclosed. Open visits and unpaired clock-outs add
   no time. This measures recorded time rather than verified hours worked.
+  It helps describe total time contributed alongside attendance fulfillment;
+  long visits do not fill other duty dates. Guessed logbook times make mock
+  hours illustrative rather than evidence of actual work.
 - **Record review:** incomplete visits after cutoff and unpaired clock-outs are
   reported separately. An unpaired clock-out cannot satisfy required attendance.
 

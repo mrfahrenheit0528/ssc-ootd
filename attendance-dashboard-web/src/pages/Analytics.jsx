@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BarChart3, RefreshCw, ShieldCheck } from 'lucide-react'
 import AttendanceAnalytics from '../components/AttendanceAnalytics'
+import AnalyticsPeriodFields from '../components/AnalyticsPeriodFields'
 import Select from '../components/Select'
 import { useSemester } from '../contexts/SemesterContext'
 import { useHistoryFilters } from '../hooks/useHistoryFilters'
@@ -40,7 +41,7 @@ export default function Analytics() {
       if (current === generation.current) setLoading(false)
     }
   }
-  const filters = useHistoryFilters({ semesters, activeSemester, loading: semesterLoading, error: semesterError, load })
+  const filters = useHistoryFilters({ semesters, activeSemester, loading: semesterLoading, error: semesterError, load, allowSingleDay: true })
   const { from, to, semesterId } = filters
   const selectedTerm = semesters.find(term => term.id === semesterId)
   const stale = !report || report.scope.from !== from || report.scope.to !== to || report.scope.semesterId !== semesterId
@@ -70,9 +71,8 @@ export default function Analytics() {
         <div className="flex flex-wrap gap-2">{[{ label: 'Today', days: 0 }, { label: 'Last 7 days', days: 7 }, { label: 'Last 30 days', days: 30 }].map(item => <button key={item.days} type="button" className="btn-secondary text-xs" disabled={semesterLoading || Boolean(semesterError)} onClick={() => preset(item.days)}>{item.label}</button>)}</div>
       </div>
       <div className="flex flex-wrap gap-3 items-end border-t border-white/10 pt-4">
-        <div className="flex-1 min-w-40"><label htmlFor="analytics-from" className="label">From</label><input className="input" type="date" id="analytics-from" required min={selectedTerm?.start_date} max={selectedTerm?.end_date || undefined} value={from} onChange={event => filters.setFrom(event.target.value)} /></div>
-        <div className="flex-1 min-w-40"><label htmlFor="analytics-to" className="label">To</label><input className="input" type="date" id="analytics-to" required min={from || selectedTerm?.start_date} max={selectedTerm?.end_date || undefined} value={to} onChange={event => filters.setTo(event.target.value)} /></div>
-        <button className="btn-primary" type="submit" disabled={loading || semesterLoading || Boolean(semesterError)}>Analyze attendance</button>
+        <AnalyticsPeriodFields filters={filters} semester={selectedTerm} disabled={semesterLoading || Boolean(semesterError)} />
+        <button className="btn-primary" type="submit" disabled={loading || semesterLoading || Boolean(semesterError)}>{filters.dateMode === 'day' ? 'Analyze day' : 'Analyze attendance'}</button>
       </div>
     </form>
 
@@ -82,7 +82,7 @@ export default function Analytics() {
         : !error && !semesterError && stale && <p className="card p-6 text-sm text-slate-400">Select Analyze attendance to load the selected period.</p>}
     </div>
     {ready && <>
-      <p className="text-xs text-slate-500">{selectedTerm?.name || 'All semesters'} · {report.scope.from} to {report.scope.to} · As of {formatTime(report.updated)} (Asia/Manila)</p>
+      <p className="text-xs text-slate-500">{selectedTerm?.name || 'All semesters'} · {report.scope.from === report.scope.to ? `Day report: ${report.scope.from}` : `${report.scope.from} to ${report.scope.to}`} · As of {formatTime(report.updated)} (Asia/Manila)</p>
       <AttendanceAnalytics key={`${report.updated.getTime()}-${report.scope.semesterId}`} data={report.data} scope={report.scope} />
     </>}
   </div>

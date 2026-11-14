@@ -66,3 +66,46 @@ test('no active semester uses an explicit all-semesters fallback and metadata fa
   assert.equal(view.result.current.semesterId,'')
   assert.deepEqual(requests,[['2026-11-11','2026-11-11','']])
 })
+
+test('single-day selection keeps both report boundaries together and waits for Analyze',()=>{
+  const requests=[]
+  const view=renderHook(()=>useHistoryFilters({...defaults,allowSingleDay:true,load:(...args)=>requests.push(args)}))
+  act(()=>view.result.current.setDateMode('day'))
+  assert.equal(view.result.current.from,'2026-11-11')
+  assert.equal(view.result.current.to,'2026-11-11')
+  act(()=>view.result.current.setDay('2026-11-06'))
+  assert.equal(view.result.current.from,'2026-11-06')
+  assert.equal(view.result.current.to,'2026-11-06')
+  assert.equal(requests.length,1,'changing a date does not silently query a different period')
+  act(()=>view.result.current.setDateMode('range'))
+  assert.equal(view.result.current.dateMode,'range')
+  act(()=>view.result.current.setTo('2026-11-10'))
+  assert.equal(view.result.current.from,'2026-11-06')
+  assert.equal(view.result.current.to,'2026-11-10')
+})
+
+test('single-day semester switches clamp to its dates and shortcuts choose the appropriate view',()=>{
+  const requests=[]
+  const view=renderHook(()=>useHistoryFilters({...defaults,allowSingleDay:true,load:(...args)=>requests.push(args)}))
+  act(()=>view.result.current.setDateMode('day'))
+  act(()=>view.result.current.chooseSemester('past'))
+  assert.deepEqual(requests.at(-1),['2026-10-31','2026-10-31','past'])
+  assert.equal(view.result.current.dateMode,'day')
+  act(()=>view.result.current.chooseSemester('current'))
+  act(()=>view.result.current.applyPreset(7))
+  assert.equal(view.result.current.dateMode,'range')
+  assert.deepEqual(requests.at(-1),['2026-11-05','2026-11-11','current'])
+  act(()=>view.result.current.applyPreset(0))
+  assert.equal(view.result.current.dateMode,'day')
+  assert.deepEqual(requests.at(-1),['2026-11-11','2026-11-11','current'])
+})
+
+test('the optional analytics day view does not change Log History semester defaults',()=>{
+  const requests=[]
+  const view=renderHook(()=>useHistoryFilters({...defaults,load:(...args)=>requests.push(args)}))
+  act(()=>view.result.current.applyPreset(0))
+  assert.equal(view.result.current.dateMode,'range')
+  act(()=>view.result.current.setDateMode('day'))
+  act(()=>view.result.current.chooseSemester('past'))
+  assert.deepEqual(requests.at(-1),['2026-06-01','2026-10-31','past'])
+})

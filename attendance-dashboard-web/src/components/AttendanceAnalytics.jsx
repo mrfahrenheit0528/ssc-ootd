@@ -45,8 +45,8 @@ function AttendanceTrend({ daily }) {
   const maximum = Math.max(1, ...buckets.map(b => Object.keys(colors).reduce((n, key) => n + b[key], 0)))
   return <section className="card p-5 sm:p-6 analytics-enter" style={{ animationDelay: '180ms' }} aria-labelledby="trend-title">
     <div className="flex justify-between gap-4 flex-wrap">
-      <div><h2 id="trend-title" className="text-white font-semibold">Attendance over time</h2>
-        <p className="text-xs text-slate-400 mt-1">Officer-days across {daily.length} days. Hover or select a bar for details.</p></div>
+      <div><h2 id="trend-title" className="text-white font-semibold">{daily.length === 1 ? `Attendance on ${shortDate(daily[0].date)}` : 'Attendance over time'}</h2>
+        <p className="text-xs text-slate-400 mt-1">{daily.length === 1 ? 'Assigned, absent, pending, and voluntary officers for this day.' : `Officer-days across ${daily.length} days. Hover or select a bar for details.`}</p></div>
       <div className="flex gap-x-4 gap-y-2 flex-wrap text-xs text-slate-400">{Object.entries(legend).map(([key, label]) =>
         <span key={key} className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: colors[key] }} />{label}</span>)}</div>
     </div>
@@ -63,7 +63,7 @@ function AttendanceTrend({ daily }) {
           </span>
         </button>)}
       </div>
-      <div className="flex justify-between gap-2 text-[10px] text-slate-500 mt-3"><span>{daily[0] && shortDate(daily[0].date)}</span><span>{daily.at(-1) && shortDate(daily.at(-1).date)}</span></div>
+      <div className="flex justify-between gap-2 text-[10px] text-slate-500 mt-3"><span>{daily[0] && shortDate(daily[0].date)}</span>{daily.length > 1 && <span>{shortDate(daily.at(-1).date)}</span>}</div>
     </div>
     {current && <div className="mt-5 rounded-xl bg-slate-950/50 border border-white/5 p-3 text-xs flex flex-wrap gap-x-4 gap-y-2" aria-live="polite">
       <span className="font-semibold text-slate-200">{period(current)}</span>
@@ -158,7 +158,7 @@ export default function AttendanceAnalytics({ data, scope }) {
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Metric label="Attendance fulfillment" value={summary.rate} suffix="%" detail={`${summary.present} of ${summary.required} finalized duty slots attended`} icon={CheckCircle2} accent="#34d399" index={0} />
       <Metric label="Officers who attended" value={summary.uniqueAttendees} detail={`${summary.visits} visits in this period`} icon={Users} accent="#818cf8" index={1} />
-      <Metric label="Recorded hours" value={Math.round(summary.seconds / 3600 * 10) / 10} suffix=" h" detail={`${summary.autoClosed} auto-closed visits included`} icon={Clock3} accent="#38bdf8" index={2} />
+      <Metric label="Recorded hours" value={Math.round(summary.seconds / 3600 * 10) / 10} suffix=" h" detail={`Total completed visit time · ${summary.autoClosed} auto-closed visits included`} icon={Clock3} accent="#38bdf8" index={2} />
       <Metric label="Voluntary attendance" value={summary.voluntaryDays} detail="Officer-days attended without a required assignment" icon={Sparkles} accent="#c084fc" index={3} />
     </div>
     {!summary.visits && <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 p-4 text-sm text-slate-400">No clock-ins in this period. Scheduled duties still appear in the attendance analysis.</div>}
