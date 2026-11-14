@@ -45,7 +45,7 @@ export default function WeeklyAssignmentGrid({ officers, schedule, disabled = fa
             </th>
           })}
         </tr></thead>
-        {groups.map(group => <tbody key={group.label} aria-label={group.label}>
+        {groups.map(group => <tbody key={group.key} aria-label={group.label}>
           <tr className="bg-slate-800/80"><th scope="rowgroup" colSpan={8} className="p-0 text-left"><span className="sticky left-0 inline-block px-4 py-2 text-[11px] uppercase tracking-wide text-slate-400">{group.label} <span className="text-slate-500">({group.officers.length})</span></span></th></tr>
           {group.officers.map(officer => <tr key={officer.card_uid} className="border-t border-white/5 hover:bg-white/[0.03]">
             <th scope="row" className="sticky left-0 z-10 bg-slate-900 px-4 py-3 text-left font-normal"><span className="block text-slate-200">{officer.first_name} {officer.last_name}{officer.active === false && <span className="ml-1 text-xs text-amber-300">(Inactive)</span>}</span><span className="block text-xs text-slate-500 mt-0.5">{officer.position || 'Officer'}</span></th>

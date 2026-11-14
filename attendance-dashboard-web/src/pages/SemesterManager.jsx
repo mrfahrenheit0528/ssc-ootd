@@ -13,9 +13,11 @@
 // Only one semester can be 'active' at a time.
 // Admins can unarchive any past semester at any time.
 
+import StartSemesterForm from '../components/StartSemesterForm'
+import { servingMembers } from '../utils/semesterRoster'
 import { dateKey } from '../utils/attendanceTime'
 import { useState } from 'react'
-import { saveRecord, updateRecord, deleteRecord, Instant, archiveSemester, activateSemester } from '../data'
+import { updateRecord, deleteRecord, archiveSemester, activateSemester } from '../data'
 import { format, parseISO } from 'date-fns'
 import { useSemester } from '../contexts/SemesterContext'
 import toast from 'react-hot-toast'
@@ -25,10 +27,6 @@ import {
 } from 'lucide-react'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-function makeSemesterId() {
-  return `sem_${Date.now()}`
-}
-
 function fmtDate(d) {
   if (!d) return '—'
   try { return format(parseISO(d), 'MMMM d, yyyy') } catch { return d }
@@ -124,85 +122,6 @@ function EditSemesterModal({ semester, onClose, onSave }) {
 }
 
 // ── Start New Semester Form ───────────────────────────────────────────────────
-function StartSemesterForm({ onStarted }) {
-  const [name,      setName]      = useState('')
-  const [startDate, setStartDate] = useState(dateKey())
-  const [saving,    setSaving]    = useState(false)
-
-  const handleStart = async () => {
-    if (!name.trim()) return toast.error('Semester name is required.')
-    if (!startDate)   return toast.error('Start date is required.')
-    setSaving(true)
-    try {
-      const id = makeSemesterId()
-      await saveRecord('semesters', id, {
-        name:             name.trim(),
-        start_date:       startDate,
-        end_date:         null,
-        status:           'active',
-        officer_snapshot: [],
-        created_at:       Instant.now(),
-      })
-      toast.success(`Semester "${name.trim()}" started!`)
-      setName('')
-      onStarted?.()
-    } catch (err) {
-      toast.error('Failed to start semester: ' + err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="card p-6 space-y-5 border-brand-500/20 bg-brand-500/5">
-      <div>
-        <h2 className="font-semibold text-white flex items-center gap-2">
-          <Plus className="w-4 h-4 text-brand-400" />
-          Start a New Semester
-        </h2>
-        <p className="text-xs text-slate-500 mt-1">
-          Start a new academic term to begin tracking attendance records.
-        </p>
-      </div>
-      <div className="space-y-4">
-        <div>
-          <label className="label">Semester Name</label>
-          <input
-            id="semester-name"
-            className="input"
-            placeholder="e.g. 1st Semester AY 2026-2027"
-            value={name}
-            onChange={e => setName(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">Start Date</label>
-          <input
-            id="semester-start-date"
-            type="date"
-            className="input w-48"
-            value={startDate}
-            onChange={e => setStartDate(e.target.value)}
-          />
-        </div>
-      </div>
-      <button
-        id="start-semester-btn"
-        onClick={handleStart}
-        disabled={saving}
-        className="btn-primary"
-      >
-        {saving
-          ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          : <GraduationCap className="w-4 h-4" />
-        }
-        {saving ? 'Starting…' : 'Start Semester'}
-      </button>
-    </div>
-  )
-}
-
-// ── Active Semester Card ──────────────────────────────────────────────────────
 function ActiveSemesterCard({ semester, onEdit }) {
   const [ending,  setEnding]  = useState(false)
   const [endDate, setEndDate] = useState(dateKey())
@@ -237,6 +156,7 @@ function ActiveSemesterCard({ semester, onEdit }) {
             <CalendarRange className="w-3.5 h-3.5" />
             Started {fmtDate(semester.start_date)}
           </p>
+          {semester.council_name && <p className="text-xs text-brand-300 mt-2">{semester.council_name} · {servingMembers(semester).length} serving officers</p>}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -263,7 +183,7 @@ function ActiveSemesterCard({ semester, onEdit }) {
             ⚠️ End "{semester.name}"?
           </p>
           <p className="text-xs text-slate-400">
-            This will archive the semester and snapshot all currently enrolled officers.
+            This will archive the semester and preserve the council roster and positions for this semester.
             You can still view all past records or unarchive this semester at any time.
           </p>
           <div>
@@ -357,7 +277,7 @@ function PastSemestersList({ semesters, activeSemester, onEdit }) {
                 {s.officer_snapshot?.length > 0 && (
                   <span className="flex items-center gap-1 text-slate-400">
                     · <Users className="w-3 h-3" />
-                    {s.officer_snapshot.length} officers
+                    {servingMembers(s).length} officers
                   </span>
                 )}
               </p>
@@ -414,7 +334,7 @@ export default function SemesterManager() {
   }
 
   return (
-    <div className="space-y-6 animate-slide-up max-w-2xl">
+    <div className="space-y-6 animate-slide-up max-w-5xl">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white flex items-center gap-3">
@@ -430,7 +350,7 @@ export default function SemesterManager() {
       <div className="flex items-start gap-3 p-4 bg-blue-500/5 border border-blue-500/15 rounded-xl text-xs text-slate-400">
         <Clock className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
         <p>
-          When you <strong className="text-slate-300">end a semester</strong>, all enrolled officers are snapshotted so historical records remain accurate. You can always <strong className="text-slate-300">unarchive</strong> a semester later if it was closed prematurely.
+          When you <strong className="text-slate-300">end a semester</strong>, its council roster and positions are preserved so historical records remain accurate. You can always <strong className="text-slate-300">unarchive</strong> a semester later if it was closed prematurely.
         </p>
       </div>
 
@@ -438,7 +358,7 @@ export default function SemesterManager() {
       {activeSemester ? (
         <ActiveSemesterCard semester={activeSemester} onEdit={setEditModal} />
       ) : (
-        <StartSemesterForm />
+        <StartSemesterForm semesters={semesters} />
       )}
 
       {/* Past semesters */}

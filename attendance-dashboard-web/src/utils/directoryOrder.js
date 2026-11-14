@@ -39,7 +39,9 @@ for (const [group, positions] of sections) for (const aliases of positions) {
   for (const alias of aliases) positionIndex.set(clean(alias), { group, rank })
   rank++
 }
-const descriptor = officer => positionIndex.get(clean(officer.position)) ?? { group: 'Other officers', rank }
+const descriptor = officer => Number.isInteger(officer.position_order)
+  ? {group:officer.position_group || 'Council positions',rank:officer.position_order}
+  : positionIndex.get(clean(officer.position)) ?? { group: 'Other officers', rank }
 export function directoryOfficers(officers, selected = []) {
   const chosen = new Set(selected)
   return officers.filter(officer => officer.active !== false || chosen.has(officer.card_uid)).slice().sort((a, b) =>
@@ -50,12 +52,12 @@ export function directoryOfficers(officers, selected = []) {
     || a.card_uid.localeCompare(b.card_uid))
 }
 export function officerGroups(officers, query = '') {
-  const search = clean(query), groups = new Map()
+  const search = clean(query), groups = []
   for (const officer of officers) {
     const { group } = descriptor(officer)
     if (search && !clean(`${officer.first_name} ${officer.last_name} ${officer.position} ${group}`).includes(search)) continue
-    if (!groups.has(group)) groups.set(group, [])
-    groups.get(group).push(officer)
+    if (groups.at(-1)?.label !== group) groups.push({label:group,key:`${group}-${groups.length}`,officers:[]})
+    groups.at(-1).officers.push(officer)
   }
-  return [...groups].map(([label, members]) => ({ label, officers: members }))
+  return groups
 }

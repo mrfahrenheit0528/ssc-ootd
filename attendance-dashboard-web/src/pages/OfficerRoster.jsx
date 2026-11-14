@@ -2,17 +2,20 @@
 // -----------------------
 // CRUD interface for officers. Supports:
 //  - Admin: add/edit/delete officers, upload photo with canvas compression & PostgreSQL binary storage
-//  - Approved members: view officer cards with photo & status
+//  - Admin-only semester roster and profile/card management
 //  - Admin enrol modal: NFC card auto-fills UID (timestamp-gated)
-//  - Structured council positions: Executive (1 each), College Reps (2 each), Assistant Officers (multiple)
+//  - Semester-specific positions, configurable capacities, and returning councils
 //  - Historical roster: view archived officer snapshot from any past semester
 
 import Select from '../components/Select'
+import CouncilRosterEditor from '../components/CouncilRosterEditor'
+import { councilMembers, councilPositions, councilIssues, semesterRoster } from '../utils/semesterRoster'
+import { directoryOfficers } from '../utils/directoryOrder'
 import OfficerNameCombobox from '../components/OfficerNameCombobox'
 import PendingCards from '../components/PendingCards'
 import { nfcUid } from '../utils/officerIdentity'
-import { useState, useEffect, useRef } from 'react'
-import { saveOfficerProfile, setEnrollment, recoverAttendance, deleteRecord, watchRecords, watchRecord, uploadPhoto } from '../data'
+import React, { useState, useEffect, useRef } from 'react'
+import { saveSemesterCouncil, saveOfficerProfile, setEnrollment, recoverAttendance, deleteRecord, watchRecords, watchRecord, uploadPhoto } from '../data'
 import { dateKey, isDayClosed } from '../utils/attendanceTime'
 import { useAuth } from '../contexts/AuthContext'
 import { useSemester } from '../contexts/SemesterContext'
@@ -23,62 +26,6 @@ import {
 } from 'lucide-react'
 
 // ── Council Positions Structure ───────────────────────────────────────────────
-export const POSITION_GROUPS = [
-  {
-    group: 'Executive Board & Directors (1 each)',
-    limit: 1,
-    positions: [
-      'President and Student Trustee',
-      'VPEA',
-      'VPIA',
-      'Secretary',
-      'Treasurer',
-      'Auditor',
-      'Property Custodian',
-      'Public Relations Officer',
-      'VSPST',
-      'SPST',
-      'Student Rights and Welfare Director',
-      'Gender and Development Director',
-      'Sports and Cultural Director',
-      'Environmental Concerns Director',
-    ],
-  },
-  {
-    group: 'College & Campus Representatives (2 each)',
-    limit: 2,
-    positions: [
-      'BUHI Representative',
-      'CAS Representative',
-      'CCS Representative',
-      'CEA Representative',
-      'CHS Representative',
-      'CTDE Representative',
-      'CTHBM Representative',
-    ],
-  },
-  {
-    group: 'Assistant Officers (Multiple)',
-    limit: null, // unlimited
-    positions: [
-      'Asst. Secretary',
-      'Asst. Treasurer',
-      'Asst. Auditor',
-      'Asst. Property Custodian',
-      'Asst. Public Relations Officer',
-    ],
-  },
-]
-
-export const ALL_POSITIONS = POSITION_GROUPS.flatMap(g => g.positions)
-
-const EMPTY_FORM = {
-  card_uid: '', first_name: '', last_name: '',
-  position: 'Officer',
-  status: 'OFF_DUTY', photo_url: '',
-}
-
-// ── Image Compressor Helper (Canvas to 400x400 max, JPEG 0.85) ────────────────
 function compressImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -121,12 +68,12 @@ function compressImage(file) {
 }
 
 // ── Officer Enrol / Edit Modal ────────────────────────────────────────────────
-function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
+export function OfficerModal({ officer, existingOfficers = [], currentMembers = existingOfficers, positions = [], semesterId = null, onClose, onSave }) {
   const initialForm = {
     card_uid:   nfcUid(officer) || officer?.pending_card_uid || '',
     first_name: officer?.first_name || '',
     last_name:  officer?.last_name || '',
-    position:   officer?.position || 'Officer',
+    position:   positions.some(position => position.name === officer?.position) ? officer.position : positions[0]?.name || officer?.position || 'Officer',
     status:     officer?.status || 'OFF_DUTY',
     photo_url:  officer?.photo_url || '',
     photo_id: officer?.photo_id || null,
@@ -206,29 +153,21 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
   }
 
   // ── Check position occupancy ──────────────────────────────────────────────
-  const selectedPos = form.position || ALL_POSITIONS[0]
-  const otherOfficers = existingOfficers.filter(o => o.active !== false && o.card_uid !== targetKey)
-  const currentOccupants = otherOfficers.filter(o => o.position === selectedPos)
-
-  // Find limit for current position
-  let posLimit = null
-  for (const g of POSITION_GROUPS) {
-    if (g.positions.includes(selectedPos)) {
-      posLimit = g.limit
-      break
-    }
-  }
+  const selectedPos = form.position
+  const currentOccupants = currentMembers.filter(o => o.active !== false && o.card_uid !== targetKey && o.position === selectedPos)
+  const posLimit = positions.find(position => position.name === selectedPos)?.capacity ?? null
   const isOverLimit = posLimit !== null && currentOccupants.length >= posLimit
 
-  // ── Save handler ──────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault()
     const rawUid = form.card_uid || ''
     const uid = rawUid.toUpperCase().trim()
     const firstName = form.first_name ? form.first_name.trim() : ''
     const lastName  = form.last_name ? form.last_name.trim() : ''
-    const position  = form.position || ALL_POSITIONS[0]
+    const position = form.position.trim()
 
+    if (!position) return toast.error('Choose a council position.')
+    if (isOverLimit) return toast.error('This position has reached its configured officer limit.')
     if (!firstName || !lastName) return toast.error('First and last name are required.')
 
     if (uid && existingOfficers.some(o=>nfcUid(o)===uid && o.card_uid!==targetKey)) return toast.error('Card already linked. Edit or restore its existing officer profile.')
@@ -236,13 +175,13 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
     try {
       let photoId = form.photo_url ? form.photo_id : null
       if (photoFile) photoId = await uploadPhoto(photoFile)
-      await saveOfficerProfile(targetKey, uid, {
+      const savedKey = await saveOfficerProfile(targetKey, uid, {
         first_name: firstName, last_name: lastName, position,
         photo_id: photoId,
-      }, {create:!isEdit,reactivate:officer?.active === false})
+      }, {create:!isEdit,reactivate:officer?.active === false || existingOfficers.find(profile=>profile.card_uid===selectedKey)?.active === false,semesterId})
 
       toast.success(isEdit ? 'Officer profile updated. Card history is linked.' : uid ? 'Officer and card saved.' : 'Officer profile saved without a card.')
-      onSave()
+      onSave({card_uid:savedKey,nfc_uid:uid || null,first_name:firstName,last_name:lastName,position,photo_id:photoId,active:true})
     } catch (err) {
       console.error('Save error:', err)
       toast.error(`Error: ${err.message}`)
@@ -370,7 +309,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
             }}
             onSelect={profile=>{
               setSelectedKey(profile.card_uid);setIdentityQuery(`${profile.first_name} ${profile.last_name}`)
-              setForm(f=>({...f,first_name:profile.first_name,last_name:profile.last_name,position:profile.position,photo_id:profile.photo_id,photo_url:profile.photo_url||''}))
+              setForm(f=>({...f,first_name:profile.first_name,last_name:profile.last_name,position:positions.some(position=>position.name===profile.position) ? profile.position : positions[0]?.name || profile.position,photo_id:profile.photo_id,photo_url:profile.photo_url||''}))
               setPhotoPreview(profile.photo_url||null);setPhotoFile(null)
             }} />}
           {selectedKey && <p className="text-xs text-emerald-300 rounded-lg bg-emerald-500/10 p-3">Linking an existing officer. Imported attendance and future scans will use the same profile.</p>}
@@ -397,25 +336,10 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
                 </span>
               )}
             </div>
-            <Select
-              id="officer-position"
-              aria-label="Council position"
-              disabled={saving}
-              className="input bg-slate-900 border-white/15"
-              value={form.position}
-              onChange={e => set('position', e.target.value)}
-            >
-              {!ALL_POSITIONS.includes(form.position) && <option value={form.position}>{form.position}</option>}
-              {POSITION_GROUPS.map(group => (
-                <optgroup key={group.group} label={group.group} className="bg-slate-900 text-slate-300 font-semibold">
-                  {group.positions.map(p => (
-                    <option key={p} value={p} className="bg-slate-950 text-slate-100 font-normal">
-                      {p}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
+            {positions.length ? <Select id="officer-position" aria-label="Council position" disabled={saving} value={form.position} onChange={event => set('position', event.target.value)}>
+              {positions.map(position => <option key={position.name} value={position.name}>{position.name}</option>)}
+            </Select> : <input id="officer-position" aria-label="Council position" className="input" value={form.position} onChange={event => set('position', event.target.value)} disabled={saving} />}
+
 
             {/* Warning if position limit is already reached */}
             {isOverLimit && (
@@ -432,7 +356,7 @@ function OfficerModal({ officer, existingOfficers = [], onClose, onSave }) {
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-2">
             <button type="button" id="cancel-officer-btn" disabled={saving} onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" id="save-officer-btn" disabled={saving} className="btn-primary">
+            <button type="submit" id="save-officer-btn" disabled={saving || isOverLimit} className="btn-primary">
               {saving
                 ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving…</>
                 : <><Save className="w-4 h-4" />{isEdit ? 'Save Changes' : 'Save Officer'}</>
@@ -507,39 +431,37 @@ export default function OfficerRoster() {
   const { isAdmin }                         = useAuth()
   const { semesters, activeSemester }       = useSemester()
   const [selectedSemester, setSelectedSemester] = useState('')
-  const [officers, setOfficers]             = useState([])
+  const [profiles, setProfiles]             = useState([])
   const [loading,  setLoading]              = useState(true)
   const [modal,    setModal]                = useState(null) // null | 'add' | officer object
   const [search,   setSearch]               = useState('')
   const [showInactive,setShowInactive] = useState(false)
   const [error,setError] = useState('')
   const [retry,setRetry] = useState(0)
+  const [councilDraft,setCouncilDraft] = useState(null)
+  const [savingCouncil,setSavingCouncil] = useState(false)
   const [,setClock] = useState(0)
   useEffect(()=>{const timer=setInterval(()=>setClock(v=>v+1),30000);return()=>clearInterval(timer)},[])
 
   // Check if viewing an archived semester
-  const selectedSemObj = semesters.find(s => s.id === selectedSemester)
+  const selectedSemObj = semesters.find(s => s.id === selectedSemester) || activeSemester
+  const officers = selectedSemObj?.roster_managed ? semesterRoster(selectedSemObj,profiles) : selectedSemObj?.status === 'ended' ? selectedSemObj.officer_snapshot || [] : profiles
+  const positions = councilPositions(selectedSemObj,profiles)
   const isArchivedView = Boolean(selectedSemObj && selectedSemObj.status === 'ended')
 
   useEffect(() => {
-    if (isArchivedView) {
-      setOfficers(selectedSemObj.officer_snapshot || [])
-      setLoading(false)
-      return
-    }
-
     setLoading(true);setError('')
     recoverAttendance().catch(e=>setError('Could not recover attendance: '+e.message))
     const unsub = watchRecords('officers', {includeInactive:isAdmin}, (rows) => {
       setError('')
-      setOfficers(rows)
+      setProfiles(rows)
       setLoading(false)
     }, err => {
       setError('Could not load officers: '+err.message)
       setLoading(false)
     })
     return () => unsub()
-  }, [selectedSemester, isArchivedView, selectedSemObj,isAdmin,retry])
+  }, [isAdmin,retry])
 
   const handleDelete = async (officer) => {
     if (!window.confirm(`Deactivate ${officer.first_name} ${officer.last_name}? Attendance history will be retained. You can restore this officer later.`)) return
@@ -552,14 +474,14 @@ export default function OfficerRoster() {
   }
 
   const visibleOfficers = officers.filter(o=>isArchivedView || showInactive || o.active !== false)
-  const filtered = visibleOfficers.filter(o => {
+  const filtered = directoryOfficers(visibleOfficers.filter(o => {
     const q = search.toLowerCase()
     return !q
       || o.first_name?.toLowerCase().includes(q)
       || o.last_name?.toLowerCase().includes(q)
       || o.position?.toLowerCase().includes(q)
       || nfcUid(o)?.toLowerCase().includes(q)
-  })
+  }),visibleOfficers.map(officer=>officer.card_uid))
 
   const onDuty  = visibleOfficers.filter(o => o.active !== false && o.status === 'ON_DUTY' && o.status_at && dateKey(o.status_at) === dateKey() && !isDayClosed(dateKey())).length
   const offDuty = visibleOfficers.length - onDuty
@@ -604,7 +526,7 @@ export default function OfficerRoster() {
                 value={selectedSemester}
                 onChange={e => setSelectedSemester(e.target.value)}
               >
-                <option value="">Current Roster</option>
+                <option value="">{activeSemester ? 'Active semester council' : 'Officer directory'}</option>
                 {semesters.filter(s => s.status === 'ended').map(s => (
                   <option key={s.id} value={s.id}>
                     {s.name} (Archived Snapshot)
@@ -614,8 +536,9 @@ export default function OfficerRoster() {
             </div>
           )}
 
+          {isAdmin && !isArchivedView && selectedSemObj && <button className="btn-secondary" onClick={()=>setCouncilDraft({name:selectedSemObj.council_name || 'SSC Council',members:councilMembers(selectedSemObj),positions:councilPositions(selectedSemObj,profiles)})}><Users className="w-4 h-4" />Manage council & positions</button>}
           {isAdmin && !isArchivedView && (
-            <button id="add-officer-btn" onClick={() => setModal('add')} className="btn-primary">
+            <button disabled={Boolean(selectedSemObj && !positions.length)} id="add-officer-btn" onClick={() => setModal('add')} className="btn-primary">
               <Plus className="w-4 h-4" /> Add or Link Officer
             </button>
           )}
@@ -631,7 +554,7 @@ export default function OfficerRoster() {
       )}
 
       {error && <div role="alert" className="card p-4 text-red-300">{error}<button className="btn-secondary ml-3" onClick={()=>setRetry(v=>v+1)}>Retry</button></div>}
-      {isAdmin && !isArchivedView && <label className="flex gap-2 text-sm text-slate-400"><input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)} />Show inactive officers (Edit to restore)</label>}
+      {isAdmin && !isArchivedView && <label className="flex gap-2 text-sm text-slate-400"><input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)} />Show former members (Edit to restore)</label>}
       <input id="officer-search" className="input max-w-sm"
         placeholder="Search by name, position, or UID…"
         value={search} onChange={e => setSearch(e.target.value)} />
@@ -673,13 +596,33 @@ export default function OfficerRoster() {
       )}
 
       {isAdmin && !isArchivedView && <PendingCards onLink={uid=>setModal({pending_card_uid:uid})} />}
+      {councilDraft && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4"><div role="dialog" aria-modal="true" aria-label="Manage semester council" className="card w-full max-w-5xl p-6 max-h-[90vh] overflow-y-auto space-y-5">
+        <div className="flex justify-between gap-3"><div><h2 className="font-bold text-white text-xl">Manage council & positions</h2><p className="text-xs text-slate-400 mt-1">{selectedSemObj?.name}</p></div><button className="btn-secondary" disabled={savingCouncil} onClick={()=>setCouncilDraft(null)}>Close</button></div>
+        <CouncilRosterEditor profiles={profiles} {...councilDraft} onNameChange={name=>setCouncilDraft(draft=>({...draft,name}))} onMembersChange={members=>setCouncilDraft(draft=>({...draft,members}))} onPositionsChange={positions=>setCouncilDraft(draft=>({...draft,positions}))} disabled={savingCouncil} onAddOfficer={()=>setModal('add')} />
+        <p className="text-xs text-slate-400">Removing an officer also removes their assignments for today and future dates. Earlier assignments and attendance remain available.</p>
+        <div className="flex justify-end gap-3"><button className="btn-secondary" disabled={savingCouncil} onClick={()=>setCouncilDraft(null)}>Cancel</button><button className="btn-primary" disabled={savingCouncil || councilIssues(councilDraft.members,councilDraft.positions,councilDraft.name).length>0} onClick={async()=>{
+          setSavingCouncil(true)
+          try { await saveSemesterCouncil(selectedSemObj.id,councilDraft.members,councilDraft.positions.map(position=>({...position,name:position.name.trim(),group:(position.group||'').trim()})),councilDraft.name);toast.success('Semester council saved.');setCouncilDraft(null) }
+          catch(error) { toast.error('Could not save council: '+error.message) }
+          finally { setSavingCouncil(false) }
+        }}>{savingCouncil ? 'Saving…' : 'Save council'}</button></div>
+      </div></div>}
       {modal && (
         <OfficerModal
           key={modal === 'add' ? 'new' : modal.card_uid || modal.pending_card_uid}
           officer={modal === 'add' ? null : modal}
-          existingOfficers={officers}
+          existingOfficers={profiles}
+          currentMembers={councilDraft ? councilDraft.members.map(member=>({...member,active:true})) : officers}
+          positions={councilDraft?.positions || positions}
+          semesterId={councilDraft ? null : selectedSemObj?.roster_managed ? selectedSemObj.id : null}
           onClose={() => setModal(null)}
-          onSave={() => setModal(null)}
+          onSave={profile => {
+            if(councilDraft) {
+              setProfiles(previous => [...previous.filter(item=>item.card_uid!==profile.card_uid),profile])
+              setCouncilDraft(draft=>({...draft,members:[...draft.members.filter(item=>item.card_uid!==profile.card_uid),{card_uid:profile.card_uid,position:profile.position}]}))
+            }
+            setModal(null)
+          }}
         />
       )}
     </div>

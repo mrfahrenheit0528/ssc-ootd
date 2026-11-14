@@ -16,12 +16,12 @@ const Analytics = lazy(() => import('./pages/Analytics'))
 
 const PUBLIC_NAV = [
   { to: '/',         label: 'Live Kiosk',     icon: Monitor      },
-  { to: '/roster',   label: 'Officer Roster',  icon: Users        },
   { to: '/history',  label: 'Log History',     icon: History      },
   { to: '/calendar', label: 'Calendar',        icon: CalendarDays },
 ]
 
 const ADMIN_NAV = [
+  { to: '/roster',   label: 'Officer Roster', icon: Users          },
   { to: '/analytics',   label: 'Analytics',  icon: BarChart3       },
   { to: '/day-config',  label: 'Day Config',  icon: Settings       },
   { to: '/semesters',   label: 'Semesters',   icon: GraduationCap  },
@@ -134,7 +134,7 @@ function AppShell() {
         <Routes>
           {/* Attendance data requires an approved SSC account. */}
           <Route path="/"         element={<ProtectedRoute><LiveKiosk /></ProtectedRoute>}     />
-          <Route path="/roster"   element={<ProtectedRoute><OfficerRoster /></ProtectedRoute>} />
+          <Route path="/roster"   element={<ProtectedRoute adminOnly><OfficerRoster /></ProtectedRoute>} />
           <Route path="/history"  element={<ProtectedRoute><LogHistory /></ProtectedRoute>}    />
           <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>}      />
 

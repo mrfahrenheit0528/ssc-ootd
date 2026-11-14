@@ -14,6 +14,25 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { 'content-type': 'application/json' },
 })
 
+test('semester council creation and updates submit explicit memberships and dynamic seats',async()=>{
+  const calls=[]
+  const repo=repository((url,options)=>{calls.push([url.pathname,JSON.parse(options.body)]);return json(null)})
+  const members=[{card_uid:'A',position:'Coordinator'}],positions=[{name:'Coordinator',capacity:4,group:'Executive'}]
+  await repo.startSemesterCouncil({id:'second',name:' Second ',startDate:'2027-01-01',mode:'new',sourceSemesterId:'first',members,positions,councilName:' Council '})
+  assert.deepEqual(calls[0],['/rest/v1/rpc/start_semester_council',{p_id:'second',p_name:'Second',p_start_date:'2027-01-01',p_mode:'new',p_source_semester_id:'first',p_roster:members,p_positions:positions,p_council_name:'Council'}])
+  await repo.saveSemesterCouncil('second',members,positions,' Council ')
+  assert.deepEqual(calls[1],['/rest/v1/rpc/save_semester_council',{p_semester_id:'second',p_roster:members,p_positions:positions,p_council_name:'Council'}])
+})
+
+test('saving a roster officer uses atomic semester membership and identity validation',async()=>{
+  const repo=repository((url,options)=>{
+    assert.equal(url.pathname,'/rest/v1/rpc/save_officer_for_semester')
+    assert.deepEqual(JSON.parse(options.body),{p_semester_id:'term',p_id:'A',p_nfc_uid:'ABCD',p_profile:{first_name:'Ana',last_name:'Example',position:'Secretary'},p_create:false,p_reactivate:true})
+    return json('A')
+  })
+  assert.equal(await repo.saveOfficerProfile('A','ABCD',{first_name:'Ana',last_name:'Example',position:'Secretary'},{semesterId:'term',reactivate:true}),'A')
+})
+
 test('semester attendance reads all pages and preserves timestamp interfaces', async () => {
   let requests = 0
   const repo = repository(url => {

@@ -55,7 +55,18 @@ def initialize():
                 conn.execute("INSERT INTO public.day_config(id,data) VALUES ('weekly',%s)",(Jsonb({'schedule':week}),))
                 conn.execute("INSERT INTO public.day_config(id,data) VALUES (((now() AT TIME ZONE 'Asia/Manila')::date+1)::text,%s)",(Jsonb({'type':'holiday','note':'School closure'}),))
                 conn.execute("INSERT INTO public.day_config(id,data) VALUES (((now() AT TIME ZONE 'Asia/Manila')::date+2)::text,%s)",(Jsonb({'type':'regular','note':'Note only'}),))
+            if migration.name.startswith('202611150002'):
+                conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES ('ADOPT001','Current','Example','Representative'),('ADOPT002','Second','Example','Representative')")
+                conn.execute("INSERT INTO public.semesters(id,name,start_date,end_date,status,officer_snapshot) VALUES ('old-council','Old','2019-01-01','2019-06-01','ended','[{\"card_uid\":\"ADOPT001\",\"first_name\":\"Historical\",\"position\":\"Secretary\"}]'),('adopt-council','Current','2020-01-01',null,'active','[]')")
             conn.execute(migration.read_text(encoding='utf-8'))
+            if migration.name.startswith('202611150002'):
+                current=conn.execute("SELECT roster_managed,officer_snapshot,position_config FROM public.semesters WHERE id='adopt-council'").fetchone()
+                assert current[0] is True and len(current[1])==2
+                assert current[2]==[{'name':'Representative','capacity':2,'group':''}]
+                old=conn.execute("SELECT officer_snapshot FROM public.semesters WHERE id='old-council'").fetchone()[0]
+                assert old[0]['position']=='Secretary' and old[0]['first_name']=='Historical'
+                conn.execute("DELETE FROM public.semesters WHERE id IN ('old-council','adopt-council'); DELETE FROM public.officers WHERE card_uid IN ('ADOPT001','ADOPT002')")
+
             if migration.name.startswith('202611140001'):
                 assert conn.execute("SELECT inherited_unassigned FROM public.calendar_days WHERE semester_id='history-upgrade' ORDER BY date").fetchall()==[(True,),(False,),(False,)]
                 conn.execute("UPDATE public.calendar_days SET note='Explicit edit' WHERE semester_id='history-upgrade' AND date='2020-09-01'")
@@ -103,6 +114,151 @@ class DatabaseTests(unittest.TestCase):
         return {'event_id': str(uuid4()), 'card_uid': 'AAAA1111', 'action_type': 'CLOCK_IN',
                 'timestamp': '2026-11-09T09:00:00+08:00', **kwargs}
 
+    def start_council(self, key='council', start='2020-01-01', members=None, positions=None, mode='new', source=None):
+        members = members if members is not None else [{'card_uid':'AAAA1111','position':'Secretary'}]
+        positions = positions if positions is not None else [{'name':'Secretary','capacity':1,'group':'Executive'}]
+        self.conn.execute('SELECT public.start_semester_council(%s,%s,%s,%s,%s,%s,%s,%s)',
+                          (key,key,start,mode,source,Jsonb(members),Jsonb(positions),'Council '+key))
+
+    def save_council(self, members, positions=None, key='council'):
+        positions = positions if positions is not None else [{'name':'Secretary','capacity':1,'group':'Executive'}]
+        self.conn.execute('SELECT public.save_semester_council(%s,%s,%s,%s)',(key,Jsonb(members),Jsonb(positions),'Council '+key))
+
+    def test_council_carry_forward_copies_seats_and_preserves_earlier_positions(self):
+        self.role(ADMIN);self.start_council('first')
+        first=self.conn.execute("SELECT officer_snapshot,position_config FROM public.semesters WHERE id='first'").fetchone()
+        self.conn.execute("SELECT public.archive_semester('first','2020-06-01')")
+        self.start_council('second','2020-06-02',mode='continue',source='first')
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot,position_config FROM public.semesters WHERE id='second'").fetchone(),first)
+        self.save_council([{'card_uid':'AAAA1111','position':'Treasurer'}],[{'name':'Treasurer','capacity':3,'group':'Finance'}],key='second')
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot,position_config FROM public.semesters WHERE id='first'").fetchone(),first)
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot->0->>'position' FROM public.semesters WHERE id='second'").fetchone()[0],'Treasurer')
+        self.assertEqual(self.conn.execute("SELECT nfc_uid FROM public.officers WHERE card_uid='AAAA1111'").fetchone()[0],'AAAA1111')
+        self.conn.execute("SELECT public.archive_semester('second','2020-12-01')")
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot->0->>'position' FROM public.semesters WHERE id='second'").fetchone()[0],'Treasurer')
+
+    def test_new_council_selects_returning_officers_and_excludes_outgoing_ones(self):
+        self.role(ADMIN);self.start_council('first')
+        self.conn.execute("SELECT public.archive_semester('first','2020-06-01')")
+        key=self.conn.execute('SELECT public.save_officer_profile(null,null,%s,true)',(Jsonb({'first_name':'New','last_name':'Member','position':'Coordinator'}),)).fetchone()[0]
+        self.start_council('second','2020-06-02',members=[{'card_uid':key,'position':'Coordinator'}],positions=[{'name':'Coordinator','capacity':4}],source='first')
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot->0->>'card_uid',jsonb_array_length(officer_snapshot) FROM public.semesters WHERE id='second'").fetchone(),(key,1))
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot->0->>'card_uid' FROM public.semesters WHERE id='first'").fetchone()[0],'AAAA1111')
+
+    def test_admin_position_limits_are_enforced_and_can_be_changed(self):
+        self.role(ADMIN);self.start_council()
+        key=self.conn.execute('SELECT public.save_officer_profile(null,null,%s,true)',(Jsonb({'first_name':'Ben','last_name':'Example','position':'Secretary'}),)).fetchone()[0]
+        members=[{'card_uid':uid,'position':'Secretary'} for uid in ['AAAA1111',key]]
+        with self.assertRaisesRegex(psycopg.errors.RaiseException,'Too many officers'),self.conn.transaction(): self.save_council(members)
+        self.assertEqual(self.conn.execute("SELECT jsonb_array_length(officer_snapshot) FROM public.semesters WHERE id='council'").fetchone()[0],1)
+        for capacity in [2,None]:
+            self.save_council(members,[{'name':'Secretary','capacity':capacity,'group':'Executive'}])
+            self.assertEqual(self.conn.execute("SELECT position_config->0->'capacity' FROM public.semesters WHERE id='council'").fetchone()[0],capacity)
+        for positions in [[{'name':'Secretary','capacity':-1}],[{'name':'Secretary','capacity':1.5}],[{'name':'Secretary'},{'name':'secretary'}]]:
+            with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():self.save_council(members,positions)
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():self.save_council([members[0],members[0]],[{'name':'Secretary','capacity':None}])
+
+    def test_seat_limit_failure_rolls_back_profile_creation_and_pending_link(self):
+        self.role(ADMIN);self.start_council()
+        self.role(anonymous=True);event=self.event(card_uid='UNKNOWN1');self.ingest([event])
+        self.role(ADMIN)
+        with self.assertRaisesRegex(psycopg.errors.RaiseException,'Too many officers'),self.conn.transaction():
+            self.conn.execute('SELECT public.save_officer_for_semester(%s,null,%s,%s,true)',('council','UNKNOWN1',Jsonb({'first_name':'Ben','last_name':'Example','position':'Secretary'})))
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.officers WHERE nfc_uid='UNKNOWN1'").fetchone()[0],0)
+        self.assertIsNone(self.conn.execute('SELECT linked_officer_key FROM public.pending_card_events WHERE id=%s',(event['event_id'],)).fetchone()[0])
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs WHERE id=%s',(event['event_id'],)).fetchone()[0],0)
+
+    def test_scoped_enrollment_links_one_identity_and_updates_only_the_current_term(self):
+        self.role(ADMIN);self.start_council('first')
+        self.conn.execute("SELECT public.archive_semester('first','2020-06-01')")
+        self.start_council('second','2020-06-02',mode='continue',source='first')
+        self.save_council([{'card_uid':'AAAA1111','position':'Treasurer'}],[{'name':'Treasurer','capacity':2}],key='second')
+        key=self.conn.execute('SELECT public.save_officer_for_semester(%s,%s,%s,%s,false)',('second','AAAA1111','AAAA1111',Jsonb({'first_name':'Ana','last_name':'Cruz','position':'Treasurer'}))).fetchone()[0]
+        self.assertEqual(key,'AAAA1111')
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot->0->>'position' FROM public.semesters WHERE id='first'").fetchone()[0],'Secretary')
+        new=self.conn.execute('SELECT public.save_officer_for_semester(%s,null,null,%s,true)',('second',Jsonb({'first_name':'Ben','last_name':'Example','position':'Treasurer'}))).fetchone()[0]
+        snapshot=self.conn.execute("SELECT officer_snapshot FROM public.semesters WHERE id='second'").fetchone()[0]
+        self.assertEqual({member['card_uid'] for member in snapshot},{'AAAA1111',new})
+        self.assertIsNone(next(member['nfc_uid'] for member in snapshot if member['card_uid']==new))
+
+    def test_new_council_and_position_editing_are_admin_only(self):
+        self.role(OFFICER)
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():self.start_council()
+        self.role(ADMIN);self.start_council()
+        self.role(OFFICER)
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():self.save_council([])
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot->0->>'first_name' FROM public.semesters WHERE id='council'").fetchone()[0],'Ana','read-only reports still have semester identities')
+        self.role(ADMIN);self.conn.execute("SELECT public.archive_semester('council','2020-06-01')")
+        with self.assertRaisesRegex(psycopg.errors.RaiseException,'active semester'),self.conn.transaction():self.save_council([])
+
+    def test_council_start_still_requires_one_active_nonoverlapping_semester(self):
+        self.role(ADMIN);self.start_council()
+        with self.assertRaisesRegex(psycopg.errors.RaiseException,'End the active'),self.conn.transaction():self.start_council('other')
+        self.conn.execute("SELECT public.archive_semester('council','2020-06-01')")
+        with self.assertRaisesRegex(psycopg.errors.RaiseException,'must start after'),self.conn.transaction():self.start_council('other','2020-05-01')
+        self.start_council('other','2020-06-02',mode='continue',source='council')
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.semesters WHERE status='active'").fetchone()[0],1)
+
+    def test_outgoing_cards_are_pending_but_delayed_previous_term_scans_are_linked(self):
+        today=self.conn.execute("SELECT (now() AT TIME ZONE 'Asia/Manila')::date").fetchone()[0]
+        self.role(ADMIN);self.start_council('first',today-timedelta(days=30))
+        self.conn.execute('SELECT public.archive_semester(%s,%s)',('first',today-timedelta(days=15)))
+        self.start_council('second',today-timedelta(days=14),members=[],positions=[])
+        self.role(anonymous=True)
+        old=self.event(timestamp=f'{today-timedelta(days=20)}T09:00:00+08:00')
+        current=self.event(timestamp=f'{today}T09:00:00+08:00')
+        self.ingest([old,current])
+        context=self.conn.execute('SELECT public.reader_context(%s,%s)',(DEVICE,TOKEN)).fetchone()[0]
+        self.assertEqual(context['officers'],[])
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT card_uid FROM public.attendance_logs WHERE id=%s',(old['event_id'],)).fetchone()[0],'AAAA1111')
+        self.assertIsNone(self.conn.execute('SELECT linked_officer_key FROM public.pending_card_events WHERE id=%s',(current['event_id'],)).fetchone()[0])
+
+    def test_reader_receipt_survives_a_manual_identity_correction(self):
+        self.role(ADMIN);self.start_council()
+        self.role(anonymous=True);event=self.event();self.ingest([event])
+        self.role(ADMIN)
+        key=self.conn.execute('SELECT public.save_officer_profile(null,null,%s,true)',(Jsonb({'first_name':'Correct','last_name':'Owner','position':'Secretary'}),)).fetchone()[0]
+        self.conn.execute('SELECT public.correct_attendance(%s,%s,%s,%s,false,%s)',(event['event_id'],key,'CLOCK_IN',event['timestamp'],'Correct officer identity'))
+        self.role(anonymous=True);self.assertEqual(self.ingest([event]),1)
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT card_uid FROM public.attendance_logs WHERE id=%s',(event['event_id'],)).fetchone()[0],key)
+
+    def test_historical_import_keeps_attendee_position_without_enrolling_in_current_council(self):
+        self.role(ADMIN);self.start_council()
+        rows=[{'date':'2020-02-01','time_in':'09:00:00','time_out':'10:00:00','create_profile':True,'first_name':'Paper','last_name':'Example','position':'Old position'}]
+        result=self.conn.execute('SELECT public.import_attendance_csv(%s,%s,%s)',('council',Jsonb(rows),'Import paper history')).fetchone()[0]
+        self.assertEqual(result['created_profiles'],1)
+        roster=self.conn.execute("SELECT officer_snapshot FROM public.semesters WHERE id='council'").fetchone()[0]
+        imported=next(member for member in roster if member['first_name']=='Paper')
+        self.assertFalse(imported['serving']);self.assertTrue(imported['history_only'])
+        self.assertEqual(sum(member.get('serving',True) for member in roster),1)
+        self.conn.execute('SELECT public.save_officer_profile(%s,null,%s,false)',(imported['card_uid'],Jsonb({'first_name':'Paper','last_name':'Example','position':'New position'})))
+        self.assertEqual(self.conn.execute("SELECT member->>'position' FROM public.semesters s,jsonb_array_elements(s.officer_snapshot) member WHERE s.id='council' AND member->>'card_uid'=%s",(imported['card_uid'],)).fetchone()[0],'Old position')
+
+    def test_council_removal_freezes_history_and_trims_future_assignments(self):
+        today=self.conn.execute("SELECT (now() AT TIME ZONE 'Asia/Manila')::date").fetchone()[0]
+        self.role(ADMIN);self.start_council(start=today-timedelta(days=5))
+        week={str(day):{'type':'scheduled','required_uids':['AAAA1111']} for day in range(7)}
+        first=self.conn.execute("SELECT public.save_semester_schedule('council',%s)",(Jsonb(week),)).fetchone()[0]
+        for day in [today-timedelta(days=1),today+timedelta(days=1)]:
+            self.conn.execute("SELECT public.save_calendar_day('council',%s,'regular','Custom',%s)",(day,Jsonb(['AAAA1111'])))
+        self.role(anonymous=True);receipt=self.event(timestamp=f'{today}T08:00:00+08:00');self.ingest([receipt])
+        self.role(ADMIN);self.save_council([])
+        historical=self.conn.execute("SELECT required_uids,schedule_version_id FROM public.calendar_days WHERE semester_id='council' AND date=%s",(today-timedelta(days=1),)).fetchone()
+        self.assertEqual(historical,(['AAAA1111'],first))
+        self.assertEqual(self.conn.execute("SELECT required_uids FROM public.calendar_days WHERE semester_id='council' AND date=%s",(today+timedelta(days=1),)).fetchone()[0],[])
+        revised=self.conn.execute("SELECT schedule FROM public.semester_schedules WHERE semester_id='council' ORDER BY revision DESC LIMIT 1").fetchone()[0]
+        self.assertTrue(all(day['type']=='unscheduled' and day['required_uids']==[] for day in revised.values()))
+        self.assertEqual(self.conn.execute("SELECT officer_snapshot->0->>'position',officer_snapshot->0->'serving' FROM public.semesters WHERE id='council'").fetchone(),('Secretary',False))
+        with self.assertRaisesRegex(psycopg.errors.RaiseException,'serving in this semester'),self.conn.transaction():
+            self.conn.execute("SELECT public.save_semester_schedule_scoped('council',%s,'whole_semester')",(Jsonb(week),))
+        with self.assertRaisesRegex(psycopg.errors.RaiseException,'serving in this semester'),self.conn.transaction():
+            self.conn.execute("SELECT public.save_calendar_day('council',%s,'regular','Future duty',%s)",(today+timedelta(days=1),Jsonb(['AAAA1111'])))
+        self.role(anonymous=True);self.assertEqual(self.ingest([receipt]),1,'already-uploaded events remain acknowledged after roster changes')
+        old=self.event(timestamp=f'{today-timedelta(days=1)}T09:00:00+08:00');self.ingest([old])
+        self.role(ADMIN);self.assertEqual(self.conn.execute('SELECT card_uid FROM public.attendance_logs WHERE id=%s',(old['event_id'],)).fetchone()[0],'AAAA1111')
+
     def test_anonymous_cannot_read_profiles(self):
         self.role(anonymous=True)
         with self.assertRaises(psycopg.errors.InsufficientPrivilege): self.conn.execute('SELECT * FROM public.officers')
@@ -111,9 +267,9 @@ class DatabaseTests(unittest.TestCase):
         self.role(OUTSIDER)
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.officers').fetchone()[0], 0)
 
-    def test_officer_can_read_but_cannot_change_profiles(self):
+    def test_officer_cannot_read_or_change_admin_roster(self):
         self.role(OFFICER)
-        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.officers').fetchone()[0], 1)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.officers').fetchone()[0], 0)
         with self.assertRaises(psycopg.errors.InsufficientPrivilege), self.conn.transaction():
             self.conn.execute("UPDATE public.officers SET first_name='Changed' RETURNING card_uid")
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
@@ -211,12 +367,13 @@ class DatabaseTests(unittest.TestCase):
         self.role(ADMIN)
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0], 0)
 
-    def test_photo_bytes_are_saved_and_members_can_read_them(self):
+    def test_photo_bytes_are_saved_but_full_roster_photos_are_admin_only(self):
         self.role(ADMIN)
         data = bytes.fromhex('ffd8ffe000104a4649460001')
         photo = self.conn.execute('SELECT public.upload_officer_photo(%s,%s)', (base64.b64encode(data).decode(), 'image/jpeg')).fetchone()[0]
-        self.role(OFFICER)
         self.assertEqual(bytes(self.conn.execute('SELECT content FROM public.officer_photos WHERE id=%s', (photo,)).fetchone()[0]), data)
+        self.role(OFFICER)
+        self.assertIsNone(self.conn.execute('SELECT content FROM public.officer_photos WHERE id=%s', (photo,)).fetchone())
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             self.conn.execute('SELECT public.upload_officer_photo(%s,%s)', (base64.b64encode(data).decode(), 'image/jpeg'))
 

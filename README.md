@@ -25,6 +25,7 @@ for the new semester/calendar migration before starting the updated code.
 - [Live Kiosk](docs/LIVE_KIOSK.md) shows unlinked NFC cards by UID until their owner is identified.
 - Compressed officer photos stored directly as PostgreSQL binary data.
 - Archived roster snapshots retain their original photo references.
+- Admin-only [semester councils](docs/SEMESTER_COUNCILS.md), configurable position limits, and council carry-forward when starting a term.
 - CSV and Excel exports with assigned/voluntary attendance calculations.
 - Admin [CSV imports](docs/ATTENDANCE_IMPORT.md) with name review, duplicate checks, and audited batches.
 - Officer profiles with optional NFC cards; link a card to imported history later.

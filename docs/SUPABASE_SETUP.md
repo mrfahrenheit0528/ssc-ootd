@@ -143,6 +143,16 @@ unknown-card attendance by NFC UID, while the pending archive and linking remain
 admin-only. See [LIVE_KIOSK.md](LIVE_KIOSK.md). No reader configuration changes
 are needed for this upgrade.
 
+## 2E. Tie councils and position limits to semesters
+
+After Step 2D, run
+[202611150002_semester_councils.sql](../supabase/migrations/202611150002_semester_councils.sql)
+once and refresh the dashboard. Open **Officer Roster → Manage council & positions**
+to review the adopted roster and set position limits. When creating the next
+semester, choose **Same council** or prepare a **New council**. Officer Roster
+is now admin-only; a secretary managing councils needs an admin application role.
+See [SEMESTER_COUNCILS.md](SEMESTER_COUNCILS.md) for the full workflow.
+
 ## 3. Set up website sign-in accounts
 
 ### 3A. Turn off public signups

@@ -58,7 +58,10 @@ The Analytics route and sidebar entry require an admin account.
 - **Record review:** incomplete visits after cutoff and unpaired clock-outs are
   reported separately. An unpaired clock-out cannot satisfy required attendance.
 
-Archived semesters use their saved roster and schedule versions. Inactive or
+Managed active and archived semesters use their own saved council positions and
+schedule versions; changing the next council does not rewrite an earlier term.
+See [semester councils](SEMESTER_COUNCILS.md) for the required roster migration.
+Inactive or
 former officers with assignments or recorded attendance remain visible. Future
 and deleted tap events do not count. Long date ranges combine consecutive dates
 into at most 24 chart bars without discarding totals; bar details show the covered
@@ -71,8 +74,8 @@ entire period. Current-day presence can appear in the trend before finalization.
 `components/AttendanceAnalytics.jsx` presents the results; `pages/Analytics.jsx`
 handles authorized routing context, date validation, loading, errors, refresh,
 and generation guards so an older request cannot replace a newer report.
-Analytics is loaded as a separate page chunk. Existing Supabase tables and
-permissions are sufficient; no additional migration is required.
+Analytics is loaded as a separate page chunk. It uses the shared attendance,
+schedule, calendar, and semester council tables from the setup migrations.
 
 The UI reuses shared dropdowns, cards, and button styles. Entrance animations,
 counting totals, growing chart bars, and the fulfillment ring respect reduced

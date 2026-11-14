@@ -100,9 +100,15 @@ export function createDataAccess(getClient = client) {
   async function saveOfficer(uid, profile, { create = false, reactivate = false } = {}) {
     return check(await getClient().rpc('save_officer', { p_uid: uid, p_profile: wire(profile), p_create: create, p_reactivate: reactivate }))
   }
-  async function saveOfficerProfile(id, nfcUid, profile, { create = false, reactivate = false } = {}) {
-    return check(await getClient().rpc('save_officer_profile', { p_id: id ?? null, p_nfc_uid: nfcUid || null,
+  async function saveOfficerProfile(id, nfcUid, profile, { create = false, reactivate = false, semesterId = null } = {}) {
+    return check(await getClient().rpc(semesterId ? 'save_officer_for_semester' : 'save_officer_profile', { ...(semesterId ? {p_semester_id:semesterId} : {}), p_id: id ?? null, p_nfc_uid: nfcUid || null,
       p_profile: wire(profile), p_create: create, p_reactivate: reactivate }))
+  }
+  async function saveSemesterCouncil(id, members, positions, name) {
+    return check(await getClient().rpc('save_semester_council',{p_semester_id:id,p_roster:wire(members),p_positions:wire(positions),p_council_name:name.trim()}))
+  }
+  async function startSemesterCouncil({id,name,startDate,mode,sourceSemesterId,members,positions,councilName}) {
+    return check(await getClient().rpc('start_semester_council',{p_id:id,p_name:name.trim(),p_start_date:startDate,p_mode:mode,p_source_semester_id:sourceSemesterId||null,p_roster:wire(members),p_positions:wire(positions),p_council_name:councilName.trim()}))
   }
   async function saveAttendance(id, payload, reason) {
     return check(await getClient().rpc('correct_attendance', { p_id: id ?? null, p_uid: payload.card_uid,
@@ -163,7 +169,7 @@ export function createDataAccess(getClient = client) {
     const context = check(result)
     return { date: context.date, events: context.events.map(event => normalizeRecord('attendance_logs', event)) }
   }, onData, onError, 5000)
-  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, watchLiveAttendance, saveOfficer, saveOfficerProfile, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
+  return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, watchLiveAttendance, saveOfficer, saveOfficerProfile, saveSemesterCouncil, startSemesterCouncil, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
 }
 
-export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, watchLiveAttendance, saveOfficer, saveOfficerProfile, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()
+export const { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, watchLiveAttendance, saveOfficer, saveOfficerProfile, saveSemesterCouncil, startSemesterCouncil, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance } = createDataAccess()

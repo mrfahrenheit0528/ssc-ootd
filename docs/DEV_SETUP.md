@@ -92,7 +92,7 @@ at semester boundaries. Attendance requests retain generation guards.
 | `semester_schedules` | Semester weekly assignments, with immutable revisions |
 | `calendar_days` | Day types, notes, nullable assignment overrides, historical revision references |
 | `attendance_audit` | Admin identity, reason, and before/after correction records |
-| `semesters` | Term dates and archived roster snapshots |
+| `semesters` | Term dates, council roster snapshots, position configuration, and source council reference |
 | `system_settings` | Expiring enrollment mode and last enrollment card tap |
 | `reader_devices` | Restricted reader identity, token hash, enable/disable flag |
 
@@ -101,6 +101,14 @@ its UUID, device token, and the project's publishable key. It has no direct
 SQL connection and no service-role key. Cloud writes for an upload batch are
 atomic. A replay acknowledges an existing event without overwriting manual
 corrections or soft-deleted entries.
+
+The [semester councils upgrade](SEMESTER_COUNCILS.md) makes Officer Roster and
+raw profile/photo reads admin-only. `officer_snapshot` holds semester positions
+for managed active terms as well as archived terms; `serving:false` retains
+departed members for history. `position_config` stores ordered names, groups,
+and nullable seat limits. Use `start_semester_council`, `save_semester_council`,
+and `save_officer_for_semester` for roster changes. CSV identity creation stays
+separate so historical imports do not enroll people in the current council.
 
 The CSV/card-linking migration preserves the legacy `officers.card_uid` primary
 key as an internal **profile key**. Existing foreign keys, schedule JSON and

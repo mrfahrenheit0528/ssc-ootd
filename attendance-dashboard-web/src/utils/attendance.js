@@ -62,12 +62,12 @@ export function analyzeAttendanceData({ logs = [], dateFrom, dateTo, context = {
   let finalizedRequired = 0, finalizedAttended = 0
   for (const date of days) {
     const cfg = resolveDay(date, context)
-    const snapshot = cfg.semester?.status === 'ended' ? cfg.semester.officer_snapshot : null
+    const snapshot = cfg.semester?.roster_managed || cfg.semester?.status === 'ended' ? cfg.semester.officer_snapshot : null
     const roster = snapshot ? Object.fromEntries(snapshot.map(o => [o.card_uid, o])) : officerMap
     const closed = isDayClosed(date, now), future = date > dateKey(now)
     const attended = new Set(sessions.filter(s => s.date === date && s.clockIn).map(s => s.card_uid))
     const rows = sessions.filter(s => s.date === date).map(s => {
-      const officer = roster[s.card_uid]
+      const officer = roster[s.card_uid] ?? officerMap[s.card_uid]
       const assigned = cfg.required_uids.includes(s.card_uid)
       return { ...s, nfc_uid: nfcUid(officer,s.card_uid), officer_name: s.officer_name || (officer ? `${officer.first_name} ${officer.last_name}` : s.card_uid), position: officer?.position ?? '—', isAssigned: assigned,
         assignment: assigned ? 'Assigned Officer of the Day' : 'Voluntary / Not Required',

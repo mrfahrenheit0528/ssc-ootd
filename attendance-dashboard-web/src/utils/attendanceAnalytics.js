@@ -24,8 +24,9 @@ export function buildAttendanceAnalytics({ logs = [], context = {}, now = new Da
   const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(label => ({ label, required: 0, present: 0 }))
   const daily = analysis.dailyReports.map(day => {
     const cfg = resolveDay(day.date, context)
-    const roster = cfg.semester?.status === 'ended'
-      ? cfg.semester.officer_snapshot ?? [] : (context.officers ?? []).filter(o => o.active !== false)
+    const roster = cfg.semester?.roster_managed || cfg.semester?.status === 'ended'
+      ? (cfg.semester.officer_snapshot ?? []).filter(member=>cfg.semester.status==='ended' || member.serving!==false)
+      : (context.officers ?? []).filter(o => o.active !== false)
     for (const profile of roster) ensure(profile.card_uid, profile)
     const closed = isDayClosed(day.date, now)
     const byOfficer = new Map()

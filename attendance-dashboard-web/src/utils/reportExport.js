@@ -3,16 +3,24 @@ import { serializeCSV } from './csv.js'
 import { listRecords } from '../data.js'
 import { analyzeAttendanceData, resolveDay, DAY_TYPE_LABELS } from './attendance.js'
 import { dateKey, formatTime, formatDuration } from './attendanceTime.js'
+import { semesterRoster } from './semesterRoster.js'
 export { analyzeAttendanceData, resolveDay, DAY_TYPE_LABELS, formatTime, formatDuration }
 export const formatDate = value => value ? dateKey(value) : '?'
 
-export async function fetchAttendanceContext(selectedSemesterId = null, semesters = []) {
+export async function fetchAttendanceContext(selectedSemesterId = null, semesters = [], readRecords = listRecords) {
   const [calendarDays, scheduleVersions, officers, terms] = await Promise.all([
-    listRecords('calendar_days'), listRecords('semester_schedules'), listRecords('officers',{includeInactive:true}),
-    semesters.length ? Promise.resolve(semesters) : listRecords('semesters'),
+    readRecords('calendar_days'), readRecords('semester_schedules'), readRecords('officers',{includeInactive:true}),
+    semesters.length ? Promise.resolve(semesters) : readRecords('semesters'),
   ])
-  return { selectedSemesterId, semesters: terms, calendarDays, scheduleVersions, officers,
-    officerMap: Object.fromEntries(officers.map(o => [o.card_uid, o])) }
+  const registry = new Map(officers.map(officer => [officer.card_uid,officer]))
+  for (const term of [...terms].sort((a,b)=>a.start_date.localeCompare(b.start_date))) {
+    for (const officer of semesterRoster(term,[])) registry.set(officer.card_uid,officer)
+  }
+  const selected=terms.find(term=>term.id===selectedSemesterId)
+  const scoped=selected?.roster_managed ? semesterRoster(selected,officers) : officers.length ? officers : [...registry.values()]
+  for (const officer of scoped) registry.set(officer.card_uid,officer)
+  return { selectedSemesterId, semesters: terms, calendarDays, scheduleVersions, officers:scoped,
+    officerMap: Object.fromEntries(registry) }
 }
 
 const HEADER = ['Date', 'Officer Name', 'Position', 'Card UID', 'Assignment Type', 'Attendance Status', 'Clock In', 'Clock Out', 'Duration', 'Auto-Closed', 'Remarks']
