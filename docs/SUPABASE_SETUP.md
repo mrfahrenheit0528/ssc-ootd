@@ -529,6 +529,12 @@ Website hosting quotas are separate from Supabase's database quotas.
 
 Do this after the website and test reader work on your personal PC.
 
+For the prepared Windows x64 standalone package, follow
+[OFFICE_DEPLOYMENT.md](OFFICE_DEPLOYMENT.md). Its one-time installer includes
+Python, the reader libraries, and sounds; it preserves the registered reader
+identity and local queue. It does not reset the existing cloud/sample database.
+The steps below are the alternative source-code installation for development.
+
 1. Install Python 3.10+ on the SSC PC. During installation, enable the option
    that adds Python to PATH.
 2. Install the ACR122U driver if Windows does not recognize the reader. The
@@ -563,8 +569,8 @@ Do this after the website and test reader work on your personal PC.
 **Checkpoint:** After signing in to Windows on the SSC PC, the reader runs
 and uploads attendance. The PC needs no Node.js, Docker, or PostgreSQL server.
 
-This version uses native Python launchers. A standalone Windows installer can
-be added after the migration is working.
+The source launchers require Python on that PC. The standalone office package
+does not; use its installer for normal staff use.
 
 ## 9. Understand free hosting and backups
 

@@ -1,0 +1,3 @@
+# Build on Windows x64 using the reader virtual environment.
+# These tools are not required on the office PC.
+pyinstaller==6.22.3

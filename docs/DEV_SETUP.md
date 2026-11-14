@@ -74,6 +74,18 @@ switches with an advisory transaction lock. Integration tests check direct
 insert/update rejection and concurrent create/activation requests in the scratch
 database. Do not weaken the index to accommodate a UI race.
 
+For a presentation/office release, use [OFFICE_DEPLOYMENT.md](OFFICE_DEPLOYMENT.md).
+`scripts/build_reader_release.py` builds a Windows x64 executable and runs its
+read-only diagnostics. `--include-private` takes a SQLite backup and copies the
+restricted reader configuration into an ignored `.local/releases/` handoff.
+It never contacts Supabase. Do not publish that ZIP. Config, database, logs and
+sounds live beside the installed executable, outside PyInstaller's `_internal`.
+An instance lock prevents duplicate starts in the same installation; `--stop`
+requests a graceful stop. The installer preserves existing office private state.
+Run `Invoke-Pester deployment/install-reader.Tests.ps1 -EnableExit` to test the
+installer with task/process/shortcut operations mocked; reader tests cover paths,
+locking, diagnostics privacy, and consistent WAL backup without cloud access.
+
 Log History's `useHistoryFilters` waits for semester metadata, defaults to the
 active term, and preserves deliberate archived/date choices across ordinary
 metadata refreshes. Its DOM hook tests also check active-term changes and presets

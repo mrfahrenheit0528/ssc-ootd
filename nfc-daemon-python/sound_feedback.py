@@ -6,6 +6,7 @@ import wave
 from pathlib import Path
 
 from state_machine import TapResult
+from runtime_paths import app_directory
 
 try:
     import winsound
@@ -13,7 +14,7 @@ except ImportError:  # Attendance and hardware-free tests also run off Windows.
     winsound = None
 
 logger = logging.getLogger(__name__)
-DAEMON_DIR = Path(__file__).resolve().parent
+DAEMON_DIR = app_directory()
 SOUND_FILES = {
     'success': 'success.wav',
     'unsuccessful': 'unsuccessful.wav',

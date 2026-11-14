@@ -7,6 +7,10 @@ even when the reader PC is off.
 
 ## Start the migration
 
+Already preparing the presentation/office rollout? Use
+[OFFICE_DEPLOYMENT.md](docs/OFFICE_DEPLOYMENT.md) for the standalone Windows
+reader installer and online dashboard setup. It keeps the existing sample data.
+
 Follow **[SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md)**, starting with a new Supabase
 Free project. Firebase development data is not imported. No Docker is required.
 The code is migrated; cloud schema, accounts, credentials, and website hosting
@@ -61,6 +65,8 @@ visible to other devices after the reader reconnects and uploads them.
 | `docs/` | Developer and Supabase setup guides |
 | `supabase/migrations/` | PostgreSQL schema, role permissions, device RPCs, Realtime |
 | `scripts/register_reader.py` | Generate device credentials and registration SQL |
+| `scripts/build_reader_release.py` | Build a standalone Windows x64 reader and optional private office handoff |
+| `deployment/` | One-time office installer, diagnostics launcher, and installer tests |
 | `scripts/test_database.py` | Disposable PostgreSQL integration test harness |
 | `setup-windows.bat` | Personal development PC dependencies |
 | `setup-reader.bat` | Reader-only dependencies for the SSC PC |

@@ -22,12 +22,15 @@ from nfc_reader import NfcReader
 from scheduler import AutoCloseScheduler
 from state_machine import StateMachine, TapResult
 from sound_feedback import SoundFeedback
+from runtime_paths import app_directory
+from reader_lifecycle import ReaderAlreadyRunning, ReaderInstance, StopMonitor
 
 # ---------------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------------
 
-def _setup_logging(log_level: str, log_dir: str = "logs") -> None:
+def _setup_logging(log_level: str, log_dir=None) -> None:
+    log_dir = log_dir or str(app_directory() / 'logs')
     os.makedirs(log_dir, exist_ok=True)
     level = getattr(logging, log_level.upper(), logging.INFO)
 
@@ -46,13 +49,13 @@ def _setup_logging(log_level: str, log_dir: str = "logs") -> None:
     fh.setFormatter(fmt)
 
     # Console handler
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setFormatter(fmt)
-
     root = logging.getLogger()
     root.setLevel(level)
     root.addHandler(fh)
-    root.addHandler(ch)
+    if sys.stdout is not None:
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setFormatter(fmt)
+        root.addHandler(ch)
 
 
 # ---------------------------------------------------------------------------
@@ -131,15 +134,25 @@ def _process_scan(uid, cfg, conn, cloud, registry, sm, syncer, feedback):
 
 def main() -> None:
     try:
+        with ReaderInstance(app_directory()):
+            (app_directory() / '.stop-request').unlink(missing_ok=True)
+            _run()
+    except ReaderAlreadyRunning:
+        logger.info('Reader already running; additional instance skipped.')
+
+
+def _run() -> None:
+    try:
         cfg = load_config()
     except (FileNotFoundError, ValueError, KeyError) as exc:
-        print(f'[FATAL] {exc}', file=sys.stderr)
+        if sys.stderr is not None:
+            print(f'[FATAL] {exc}', file=sys.stderr)
         sys.exit(1)
     _setup_logging(cfg.log_level)
     db.configure_timezone(cfg.attendance_timezone)
     db_path = cfg.db_path
     if not os.path.isabs(db_path):
-        db_path = os.path.join(os.path.dirname(__file__), db_path)
+        db_path = str(app_directory() / db_path)
     conn = db.get_connection(db_path)
     db.init_db(conn)
     db.recover_overdue(conn, close_time=cfg.auto_close_time)
@@ -155,6 +168,7 @@ def main() -> None:
     feedback = SoundFeedback(cfg.sounds_directory, enabled=cfg.sounds_enabled)
     sm = StateMachine(cfg, conn, lambda uid, result: _on_event(uid, result, feedback))
     reader = NfcReader(on_read_error=lambda: feedback.play('unsuccessful'), buzzer_enabled=cfg.reader_buzzer_enabled)
+    monitor = StopMonitor(app_directory(), reader)
     def shutdown(signum, frame):
         logger.info('Stopping NFC reader...')
         reader.stop()
@@ -165,12 +179,15 @@ def main() -> None:
     registry.start()
     syncer.start()
     scheduler.start()
+    monitor.start()
     logger.info('Ready for NFC cards. Attendance is buffered locally before upload.')
     try:
         for uid in reader.poll():
             _process_scan(uid, cfg, conn, cloud, registry, sm, syncer, feedback)
     finally:
         reader.stop()
+        monitor.stop()
+        monitor.join()
         sm.stop()
         feedback.close()
         registry.stop()

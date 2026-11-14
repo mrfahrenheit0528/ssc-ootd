@@ -9,10 +9,11 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from runtime_paths import app_directory
 
 logger = logging.getLogger(__name__)
 
-_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
+_CONFIG_PATH = str(app_directory() / 'config.json')
 
 
 @dataclass
