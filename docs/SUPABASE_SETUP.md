@@ -153,6 +153,16 @@ semester, choose **Same council** or prepare a **New council**. Officer Roster
 is now admin-only; a secretary managing councils needs an admin application role.
 See [SEMESTER_COUNCILS.md](SEMESTER_COUNCILS.md) for the full workflow.
 
+## 2F. Show officer photos in Live Kiosk
+
+After Step 2E, run
+[202611160001_live_kiosk_photos.sql](../supabase/migrations/202611160001_live_kiosk_photos.sql)
+in the existing project's SQL Editor, then refresh the dashboard. This keeps
+existing data and gives approved members a scoped photo lookup for today's
+identified attendees. Full roster/photo management remains admin-only.
+Live Kiosk shows the uploaded photo, falls back to the first initial if absent
+or unreadable, and keeps `?` for unlinked cards. See [LIVE_KIOSK_PHOTOS.md](LIVE_KIOSK_PHOTOS.md).
+
 ## 3. Set up website sign-in accounts
 
 ### 3A. Turn off public signups

@@ -31,6 +31,15 @@ function StatCard({ icon: Icon, label, value, accent }) {
   )
 }
 
+function OfficerAvatar({ name, photoUrl, unlinked }) {
+  const [failedUrl, setFailedUrl] = useState(null)
+  const showPhoto = !unlinked && photoUrl && photoUrl !== failedUrl
+  return <div className="w-8 h-8 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-brand-500/30 to-violet-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-brand-300">
+    {showPhoto ? <img src={photoUrl} alt={`${name || 'Officer'} profile photo`} width={32} height={32} loading="lazy" decoding="async" className="w-full h-full object-cover" onError={() => setFailedUrl(photoUrl)} />
+      : <span aria-hidden="true">{unlinked ? '?' : name?.trim().charAt(0).toUpperCase() || '?'}</span>}
+  </div>
+}
+
 function SessionRow({ session, isNew, officer }) {
   const { officer_name, card_uid, clockIn, clockOut } = session
   const fmt = formatTime
@@ -42,9 +51,7 @@ function SessionRow({ session, isNew, officer }) {
     <tr className={`border-b border-white/5 transition-all duration-500 ${isNew ? 'bg-brand-500/10 animate-fade-in' : 'hover:bg-white/3'}`}>
       <td data-label="Officer / card" className="px-4 py-3">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-brand-500/30 to-violet-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-brand-300">
-            {unlinked ? '?' : officer_name?.charAt(0) ?? '?'}
-          </div>
+          <OfficerAvatar name={officer_name} photoUrl={event?.photo_url} unlinked={unlinked} />
           <div>
             <p className={`font-medium text-slate-100 ${unlinked ? 'font-mono' : ''}`}>{unlinked ? card : officer_name ?? card_uid}</p>
             {unlinked ? <p className="text-xs text-amber-300">Unlinked card</p> : <p className="text-xs text-slate-500 font-mono">{card || 'No card linked'}</p>}

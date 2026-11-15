@@ -42,6 +42,19 @@ export function createDataAccess(getClient = client) {
     for (const officer of officers) officer.photo_url = photoCache.get(officer.photo_id) ?? ''
     return records
   }
+  async function attachLivePhotos(events) {
+    const ids = [...new Set(events.filter(event => !event.is_unlinked).map(event => event.photo_id).filter(Boolean))]
+      .filter(id => !photoCache.has(id))
+    for (let start = 0; start < ids.length; start += 100) {
+      try {
+        const photos = check(await getClient().rpc('live_kiosk_photos', { p_photo_ids: ids.slice(start, start + 100) }))
+        for (const photo of photos ?? []) photoCache.set(photo.id, photo.data_url)
+      } catch {
+        // A photo failure must not hide scans. Retry uncached photos next poll.
+      }
+    }
+    return events.map(event => ({ ...event, photo_url: event.is_unlinked ? '' : photoCache.get(event.photo_id) ?? '' }))
+  }
   async function listRecords(table, options = {}) {
     const all = []
     // Page explicitly: a semester can exceed Supabase's response row limit.
@@ -167,7 +180,7 @@ export function createDataAccess(getClient = client) {
     const result = await getClient().rpc('live_kiosk_context')
     if (result.error?.code === 'PGRST202') throw new Error('Run the new 202611150001_live_unlinked_cards.sql migration once to enable the updated Live Kiosk.')
     const context = check(result)
-    return { date: context.date, events: context.events.map(event => normalizeRecord('attendance_logs', event)) }
+    return { date: context.date, events: await attachLivePhotos(context.events.map(event => normalizeRecord('attendance_logs', event))) }
   }, onData, onError, 5000)
   return { clearPhotoCache, normalizeRecord, listRecords, getRecord, saveRecord, updateRecord, addRecord, deleteRecord, uploadPhoto, archiveSemester, activateSemester, watchRecords, watchRecord, watchLiveAttendance, saveOfficer, saveOfficerProfile, saveSemesterCouncil, startSemesterCouncil, saveAttendance, importAttendanceCSV, saveWeek, saveCalendarDay, setEnrollment, recoverAttendance }
 }

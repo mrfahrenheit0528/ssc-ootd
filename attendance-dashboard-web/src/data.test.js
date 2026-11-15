@@ -189,3 +189,53 @@ test('live attendance loads an atomic snapshot, refreshes all linking sources, a
   assert.equal(removed,1)
   assert.deepEqual(cleared,[123])
 })
+
+test('live photo lookups are deduplicated and cached, and photo changes/removal follow snapshots',async t=>{
+  const previousWindow=globalThis.window
+  globalThis.window=new EventTarget()
+  let poll,rows=[{id:'in',card_uid:'A',photo_id:'photo-a',type:'CLOCK_IN',timestamp:'2026-11-16T08:00:00+08:00'},
+    {id:'out',card_uid:'A',photo_id:'photo-a',type:'CLOCK_OUT',timestamp:'2026-11-16T12:00:00+08:00'},
+    {id:'pending',card_uid:'unlinked:UNKNOWN',photo_id:'must-not-fetch',is_unlinked:true,type:'CLOCK_IN',timestamp:'2026-11-16T08:00:00+08:00'}]
+  t.mock.method(globalThis,'setInterval',callback=>{poll=callback;return 1})
+  t.mock.method(globalThis,'clearInterval',()=>{})
+  const lookups=[],received=[]
+  const channel={on:()=>channel,subscribe:()=>channel}
+  const repo=createDataAccess(()=>({channel:()=>channel,removeChannel:()=>{},rpc:async(name,args)=>{
+    if(name==='live_kiosk_context')return {data:{date:'2026-11-16',events:rows}}
+    assert.equal(name,'live_kiosk_photos');lookups.push(args.p_photo_ids)
+    return {data:args.p_photo_ids.map(id=>({id,data_url:`data:image/png;base64,${id}`}))}
+  }}))
+  const stop=repo.watchLiveAttendance(value=>received.push(value),error=>{throw error})
+  try{
+    await new Promise(setImmediate)
+    assert.deepEqual(lookups,[['photo-a']])
+    assert.equal(received.at(-1).events[0].photo_url,received.at(-1).events[1].photo_url)
+    assert.equal(received.at(-1).events[2].photo_url,'')
+    poll();await new Promise(setImmediate);assert.equal(lookups.length,1)
+    rows=rows.map(row=>({...row,photo_id:row.is_unlinked?row.photo_id:'photo-b'}))
+    poll();await new Promise(setImmediate);assert.deepEqual(lookups,[['photo-a'],['photo-b']])
+    rows=rows.map(row=>({...row,photo_id:null}))
+    poll();await new Promise(setImmediate);assert.ok(received.at(-1).events.every(event=>!event.photo_url))
+  }finally{stop();globalThis.window=previousWindow}
+})
+
+test('failed live photo requests leave attendance available and retry on the next poll',async t=>{
+  const previousWindow=globalThis.window
+  globalThis.window=new EventTarget()
+  let poll,requests=0
+  t.mock.method(globalThis,'setInterval',callback=>{poll=callback;return 1})
+  t.mock.method(globalThis,'clearInterval',()=>{})
+  const received=[],errors=[],channel={on:()=>channel,subscribe:()=>channel}
+  const repo=createDataAccess(()=>({channel:()=>channel,removeChannel:()=>{},rpc:async name=>{
+    if(name==='live_kiosk_context')return {data:{date:'2026-11-16',events:[{id:'in',card_uid:'A',photo_id:'photo-a',type:'CLOCK_IN',timestamp:'2026-11-16T08:00:00+08:00'}]}}
+    if(++requests===1)return {error:{message:'Photo lookup unavailable'}}
+    return {data:[{id:'photo-a',data_url:'data:image/png;base64,cGhvdG8='}]}
+  }}))
+  const stop=repo.watchLiveAttendance(value=>received.push(value),error=>errors.push(error))
+  try{
+    await new Promise(setImmediate);assert.equal(received[0].events[0].photo_url,'');assert.equal(received[0].events.length,1)
+    poll();await new Promise(setImmediate);assert.equal(received.at(-1).events[0].photo_url,'data:image/png;base64,cGhvdG8=')
+    assert.deepEqual(errors,[])
+    repo.clearPhotoCache();poll();await new Promise(setImmediate);assert.equal(requests,3)
+  }finally{stop();globalThis.window=previousWindow}
+})

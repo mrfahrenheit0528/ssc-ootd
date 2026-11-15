@@ -2,7 +2,7 @@ import './selectTestEnvironment.js'
 import React from 'react'
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { LiveKioskBoard } from '../pages/LiveKiosk.jsx'
 
 afterEach(cleanup)
@@ -42,4 +42,30 @@ test('the next linked snapshot replaces the unknown identity with the officer na
   assert.ok(screen.getByText('1 session'))
   assert.ok(within(stat('Currently On Duty')).getByText('1'))
   assert.ok(within(stat('Attendees Today')).getByText('1'))
+})
+
+test('identified attendees use their uploaded photo and a missing photo uses the first initial',()=>{
+  const linked={...entered,card_uid:'OFF'+'A'.repeat(32),officer_name:'Ana Cruz',is_unlinked:false,photo_url:'data:image/png;base64,cGhvdG8='}
+  const view=render(<LiveKioskBoard {...props} logs={[linked]} />)
+  assert.equal(screen.getByRole('img',{name:'Ana Cruz profile photo'}).getAttribute('src'),linked.photo_url)
+  view.rerender(<LiveKioskBoard {...props} logs={[{...linked,photo_url:''}]} />)
+  assert.equal(screen.queryByRole('img'),null)
+  assert.ok(screen.getByText('A'))
+})
+
+test('a failed photo falls back to an initial and a replacement photo can load',()=>{
+  const linked={...entered,card_uid:'OFF'+'A'.repeat(32),officer_name:'Ana Cruz',is_unlinked:false,photo_url:'data:image/png;base64,b2xk'}
+  const view=render(<LiveKioskBoard {...props} logs={[linked]} />)
+  fireEvent.error(screen.getByRole('img',{name:'Ana Cruz profile photo'}))
+  assert.equal(screen.queryByRole('img'),null)
+  assert.ok(screen.getByText('A'))
+  view.rerender(<LiveKioskBoard {...props} logs={[{...linked,photo_url:'data:image/png;base64,bmV3'}]} />)
+  assert.equal(screen.getByRole('img',{name:'Ana Cruz profile photo'}).getAttribute('src'),'data:image/png;base64,bmV3')
+})
+
+test('unlinked cards always show a question mark even if a photo is incorrectly attached',()=>{
+  render(<LiveKioskBoard {...props} logs={[{...entered,photo_url:'data:image/png;base64,cGhvdG8='}]} />)
+  assert.equal(screen.queryByRole('img'),null)
+  assert.ok(screen.getByText('?'))
+  assert.ok(screen.getByText(uid))
 })

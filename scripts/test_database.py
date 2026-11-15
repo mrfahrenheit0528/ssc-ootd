@@ -1,6 +1,6 @@
 """Integration tests against an EMPTY disposable PostgreSQL database, no Docker.
 
-Set SSC_TEST_DATABASE_URL to a database named ssc_migration_test. The setup creates
+Set SSC_TEST_DATABASE_URL to ssc_migration_test or a fresh ssc_migration_test_* database. The setup creates
 minimal Supabase Auth/publication stubs and applies the real migration. Never use
 a cloud project or an existing application database for this test harness.
 Requires psycopg[binary]. Run: python scripts/test_database.py
@@ -29,8 +29,9 @@ TOKEN = 'test-token-that-is-long-enough-for-device-auth'
 
 def initialize():
     with psycopg.connect(DSN, autocommit=True) as conn:
-        if conn.execute('SELECT current_database()').fetchone()[0] != 'ssc_migration_test':
-            raise RuntimeError('Tests require an empty database named ssc_migration_test.')
+        database_name = conn.execute('SELECT current_database()').fetchone()[0]
+        if database_name != 'ssc_migration_test' and not database_name.startswith('ssc_migration_test_'):
+            raise RuntimeError('Tests require an empty database named ssc_migration_test or ssc_migration_test_*.')
         if conn.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('public','auth')").fetchone()[0]:
             raise RuntimeError('Test database must be empty. Create a fresh disposable database.')
         conn.execute("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; END $$")
@@ -297,7 +298,8 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(len(snapshot['events']),1)
         live=snapshot['events'][0]
         self.assertEqual((live['card_uid'],live['nfc_uid'],live['officer_name'],live['is_unlinked']),('unlinked:UNKNOWN1','UNKNOWN1',None,True))
-        self.assertEqual(set(live),{'id','card_uid','nfc_uid','officer_name','type','timestamp','is_auto_closed','created_at','is_unlinked'})
+        self.assertEqual(set(live),{'id','card_uid','nfc_uid','officer_name','type','timestamp','is_auto_closed','created_at','is_unlinked','photo_id'})
+        self.assertIsNone(live['photo_id'])
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events').fetchone()[0],0,'raw pending archive remains admin-only')
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0],0,'unknown cards stay out of officer attendance reports')
         self.role(OUTSIDER)
@@ -306,6 +308,45 @@ class DatabaseTests(unittest.TestCase):
         self.role(anonymous=True)
         with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
             self.conn.execute('SELECT public.live_kiosk_context()')
+
+    def test_live_photos_only_expose_current_attendees_to_approved_members(self):
+        stamp=self.conn.execute('SELECT now()').fetchone()[0]
+        content=bytes(range(128))
+        photo_ids=[uuid4() for _ in range(5)]
+        for index,photo in enumerate(photo_ids):
+            self.conn.execute("INSERT INTO public.officer_photos(id,content,mime_type) VALUES (%s,%s,'image/png')",(photo,content))
+            key='PHOTO00'+str(index)
+            self.conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position,photo_id) VALUES (%s,'Photo','Example','Officer',%s)",(key,photo))
+            if index<4:
+                event_stamp=stamp-timedelta(days=1) if index==1 else stamp+timedelta(days=1) if index==2 else stamp
+                self.conn.execute("INSERT INTO public.attendance_logs(card_uid,officer_name,type,timestamp,deleted_at) VALUES (%s,'Photo Example','CLOCK_IN',%s,%s)",(key,event_stamp,stamp if index==3 else None))
+        self.role(OFFICER)
+        photos=self.conn.execute('SELECT * FROM public.live_kiosk_photos(%s)',(photo_ids,)).fetchall()
+        self.assertEqual(photos,[(photo_ids[0],'data:image/png;base64,'+base64.b64encode(content).decode())])
+        snapshot=self.conn.execute('SELECT public.live_kiosk_context()').fetchone()[0]
+        self.assertEqual([row['photo_id'] for row in snapshot['events']],[str(photo_ids[0])])
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.officer_photos').fetchone()[0],0)
+        with self.assertRaisesRegex(psycopg.errors.RaiseException,'at most 100'),self.conn.transaction():
+            self.conn.execute('SELECT * FROM public.live_kiosk_photos(%s)',([photo_ids[0]]*101,))
+        for user in (OUTSIDER,None):
+            self.role(user,anonymous=user is None)
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
+                self.conn.execute('SELECT * FROM public.live_kiosk_photos(%s)',(photo_ids,))
+
+    def test_live_photo_replacement_and_removal_follow_the_current_profile(self):
+        photos=[uuid4(),uuid4()]
+        for photo in photos:
+            self.conn.execute("INSERT INTO public.officer_photos(id,content,mime_type) VALUES (%s,%s,'image/png')",(photo,b'photo'))
+        self.conn.execute("UPDATE public.officers SET photo_id=%s WHERE card_uid='AAAA1111'",(photos[0],))
+        self.conn.execute("INSERT INTO public.attendance_logs(card_uid,officer_name,type,timestamp) VALUES ('AAAA1111','Ana Cruz','CLOCK_IN',now())")
+        for photo in (photos[0],photos[1],None):
+            self.conn.execute('RESET ROLE')
+            self.conn.execute("UPDATE public.officers SET photo_id=%s WHERE card_uid='AAAA1111'",(photo,))
+            self.role(OFFICER)
+            snapshot=self.conn.execute('SELECT public.live_kiosk_context()').fetchone()[0]
+            self.assertEqual(snapshot['events'][0]['photo_id'],str(photo) if photo else None)
+            result=self.conn.execute('SELECT id FROM public.live_kiosk_photos(%s)',(photos,)).fetchall()
+            self.assertEqual(result,[(photo,)] if photo else [])
 
     def test_live_card_linking_promotes_one_event_and_never_reveals_a_deleted_receipt(self):
         stamp=self.conn.execute('SELECT now()').fetchone()[0]
