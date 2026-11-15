@@ -30,8 +30,8 @@ function DayEditor({ day, context, semesterId, officers, onClose, onSaved }) {
     catch (e) { toast.error(e.message) } finally { setSaving(false) }
   }
   return <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="calendar-editor-title">
-    <div className="card bg-slate-900 p-6 w-full max-w-lg max-h-[90vh] overflow-auto space-y-4 animate-slide-up">
-      <div className="flex justify-between"><h2 id="calendar-editor-title" className="font-semibold">{format(parseISO(day), 'MMMM d, yyyy')}</h2><button disabled={saving} onClick={onClose} aria-label="Close day editor"><X /></button></div>
+    <div className="dialog-panel card bg-slate-900 p-6 w-full max-w-lg max-h-[90vh] overflow-auto space-y-4 animate-slide-up">
+      <div className="flex justify-between"><h2 id="calendar-editor-title" className="font-semibold">{format(parseISO(day), 'MMMM d, yyyy')}</h2><button className="min-h-11 min-w-11 inline-flex items-center justify-center" disabled={saving} onClick={onClose} aria-label="Close day editor"><X /></button></div>
       <label className="label">Calendar day type</label>
       <Select aria-label="Calendar day type" className="input" disabled={saving} value={type} onChange={e => setType(e.target.value)}>{Object.entries(DAY_TYPE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</Select>
       {type === 'regular' && <p className="text-xs text-slate-400">Required officers follow the semester's weekly assignments unless you choose a different list below.</p>}
@@ -133,7 +133,7 @@ export default function DayConfig() {
           const ds = format(day,'yyyy-MM-dd')
           const cfg = dirty ? resolveDayWithDraft(ds,context,schedule,dateKey(),scope) : resolveDay(ds,context)
           const outside = ds < term.start_date || (term.end_date && ds > term.end_date)
-          return <button key={ds} data-day-type={outside ? undefined : cfg.type} disabled={outside || readOnly || saving} onClick={() => {if(dirty) {toast.error('Save weekly assignments before editing an individual date.');return} setSelectedDay(ds)}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} dayType={cfg.type} /></span><span className="block text-[10px] sm:text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="hidden sm:block text-xs text-brand-300">{cfg.required_uids.length} required</span>}</button>
+          return <button key={ds} aria-label={`${format(day,'MMMM d, yyyy')}, ${DAY_TYPE_LABELS[cfg.type]}`} data-day-type={outside ? undefined : cfg.type} disabled={outside || readOnly || saving} onClick={() => {if(dirty) {toast.error('Save weekly assignments before editing an individual date.');return} setSelectedDay(ds)}} className={`calendar-day border rounded-lg p-1 sm:p-3 min-h-20 text-left ${outside ? 'opacity-20' : 'border-white/10'}`}><span className="flex items-center justify-between gap-1"><span className="text-sm">{day.getDate()}</span><ScheduleIndicator type={cfg.schedule_type} dayType={cfg.type} /></span><span className="hidden sm:block text-xs text-slate-400 mt-1">{DAY_TYPE_LABELS[cfg.type]}</span>{cfg.required_uids.length > 0 && <span className="block text-[10px] sm:text-xs text-brand-300 mt-1">{cfg.required_uids.length}<span className="hidden sm:inline"> required</span><span className="sm:hidden"> req</span></span>}</button>
         })}</div>
       </section>
         ) },

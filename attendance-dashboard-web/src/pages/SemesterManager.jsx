@@ -61,11 +61,11 @@ function EditSemesterModal({ semester, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="card w-full max-w-md p-6 space-y-5 animate-slide-up">
+    <div role="dialog" aria-modal="true" aria-label="Edit Semester" className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="dialog-panel card w-full max-w-md p-6 space-y-5 animate-slide-up">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-white text-lg">Edit Semester</h2>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+          <button aria-label="Close semester editor" onClick={onClose} className="min-h-11 min-w-11 inline-flex items-center justify-center p-2 hover:bg-white/10 rounded-lg transition-colors">
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
@@ -81,7 +81,7 @@ function EditSemesterModal({ semester, onClose, onSave }) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Start Date</label>
               <input

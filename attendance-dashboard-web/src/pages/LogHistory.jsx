@@ -78,11 +78,11 @@ function LogEditModal({ log, officers, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="card w-full max-w-md p-6 space-y-5 animate-slide-up">
+    <div role="dialog" aria-modal="true" aria-label={isAdd ? 'Add Manual Entry' : 'Edit Log Entry'} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="dialog-panel card w-full max-w-md p-6 space-y-5 animate-slide-up">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-white text-lg">{isAdd ? 'Add Manual Entry' : 'Edit Log Entry'}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+          <button aria-label="Close log editor" onClick={onClose} className="min-h-11 min-w-11 inline-flex items-center justify-center p-2 hover:bg-white/10 rounded-lg transition-colors">
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
@@ -123,7 +123,7 @@ function LogEditModal({ log, officers, onClose, onSave }) {
           </div>
 
           {/* Date & time */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Date</label>
               <input type="date" className="input" value={dateStr} onChange={e => setDateStr(e.target.value)} />
@@ -157,19 +157,19 @@ function LogEditModal({ log, officers, onClose, onSave }) {
 function SessionTimeCell({ log, kind, isAdmin, onEdit, onDelete }) {
   const label = kind === 'in' ? 'clock-in' : 'clock-out'
   return (
-    <td className="px-4 py-3 text-sm">
-      {log ? <div className="flex items-center gap-2">
+    <td data-label={kind === 'in' ? 'Clock in' : 'Clock out'} className="px-4 py-3 text-sm">
+      {log ? <div className="flex flex-wrap items-center gap-2">
         <div>
           <p className="text-slate-400 font-mono whitespace-nowrap">{formatTime(log.timestamp)}</p>
           {log.is_auto_closed && <p className="text-xs text-slate-500">Auto-closed</p>}
         </div>
         {isAdmin && <div className="flex items-center gap-1">
           <button onClick={() => onEdit(log)} title={`Edit ${label}`} aria-label={`Edit ${label} for ${log.officer_name ?? log.card_uid}`}
-            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-slate-400 hover:text-slate-200">
+            className="min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center p-1.5 hover:bg-white/10 rounded-lg transition-colors text-slate-400 hover:text-slate-200">
             <Pencil className="w-3.5 h-3.5" />
           </button>
           <button onClick={() => onDelete(log)} title={`Delete ${label}`} aria-label={`Delete ${label} for ${log.officer_name ?? log.card_uid}`}
-            className="p-1.5 hover:bg-red-500/15 rounded-lg transition-colors text-slate-400 hover:text-red-400">
+            className="min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center p-1.5 hover:bg-red-500/15 rounded-lg transition-colors text-slate-400 hover:text-red-400">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>}
@@ -309,16 +309,16 @@ export default function LogHistory() {
         {/* Row 1: Semester Selector + Quick Presets */}
         <div className="flex items-center justify-between gap-4 flex-wrap pb-3 border-b border-white/8">
           {/* Semester Selector */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex w-full sm:w-auto min-w-0 items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-brand-500/15 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
               <GraduationCap className="w-4 h-4 text-brand-400" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Semester Filter</p>
               <Select
                 id="semester-filter-select"
                 aria-label="History semester"
-                className="input py-1 px-2.5 text-xs w-auto min-w-48 mt-0.5 bg-slate-900 border-white/15 focus:ring-brand-500"
+                className="input py-1 px-2.5 text-xs w-full min-w-0 sm:w-auto sm:min-w-48 mt-0.5 bg-slate-900 border-white/15 focus:ring-brand-500"
                 value={selectedSemester}
                 disabled={semesterLoading || !!semesterError}
                 onChange={e => filters.chooseSemester(e.target.value)}
@@ -340,7 +340,7 @@ export default function LogHistory() {
               {PRESETS.map(({ label, days }) => (
                 <button key={label} id={`preset-${label.replace(/\s+/g,'-').toLowerCase()}`}
                   onClick={() => applyPreset(days)}
-                  className="px-2.5 py-1 text-xs rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-slate-300 transition-colors">
+                  className="min-h-11 sm:min-h-0 px-2.5 py-1 text-xs rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-slate-300 transition-colors">
                   {label}
                 </button>
               ))}
@@ -349,18 +349,18 @@ export default function LogHistory() {
         </div>
 
         {/* Row 2: Date From, Date To, Search, Fetch */}
-        <div className="flex flex-wrap gap-3 items-end">
+        <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
           <div>
             <label className="label">From Date</label>
-            <input id="date-from" type="date" className="input w-40" value={dateFrom} min={selectedTerm?.start_date} max={dateTo}
+            <input id="date-from" type="date" className="input w-full sm:w-40" value={dateFrom} min={selectedTerm?.start_date} max={dateTo}
               onChange={e => filters.setFrom(e.target.value)} />
           </div>
           <div>
             <label className="label">To Date</label>
-            <input id="date-to" type="date" className="input w-40" value={dateTo} min={dateFrom} max={selectedTerm?.end_date || undefined}
+            <input id="date-to" type="date" className="input w-full sm:w-40" value={dateTo} min={dateFrom} max={selectedTerm?.end_date || undefined}
               onChange={e => filters.setTo(e.target.value)} />
           </div>
-          <div className="flex-1 min-w-40">
+          <div className="col-span-full sm:flex-1 min-w-0 sm:min-w-40">
             <label className="label">Search Officer / UID</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
@@ -368,7 +368,7 @@ export default function LogHistory() {
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
-          <button id="fetch-logs-btn" onClick={fetchLogs} disabled={loading || semesterLoading || !!semesterError} className="btn-primary h-9">
+          <button id="fetch-logs-btn" onClick={fetchLogs} disabled={loading || semesterLoading || !!semesterError} className="btn-primary col-span-full sm:h-9">
             {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             {loading ? 'Loading…' : 'Fetch Logs'}
           </button>
@@ -404,7 +404,7 @@ export default function LogHistory() {
             <p className="text-sm">No records found for this date range or semester.</p>
           </div>
         ) : (
-          <div className="table-wrapper rounded-none border-0">
+          <div className="mobile-records table-wrapper rounded-none border-0">
             <table className="data-table">
               <thead>
                 <tr>
@@ -428,12 +428,12 @@ export default function LogHistory() {
 
                   return (
                     <tr key={session.clockIn?.id ?? session.clockOut.id} className={`border-b border-white/5 hover:bg-white/3 transition-colors ${edited ? 'bg-amber-500/5' : ''}`}>
-                      <td className="px-4 py-3 font-medium">
+                      <td data-label="Officer" className="px-4 py-3 font-medium">
                         <p className="text-slate-100">{session.officer_name ?? session.card_uid}</p>
                         {officer?.position && <p className="text-xs text-slate-500">{officer.position}</p>}
                         {edited && <span className="text-xs text-amber-500/70">(edited)</span>}
                       </td>
-                      <td className="px-4 py-3">
+                      <td data-label="Assignment" className="px-4 py-3">
                         {isAssigned ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-500/20 text-brand-300 border border-brand-500/30">
                             Assigned OOTD
@@ -444,11 +444,11 @@ export default function LogHistory() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-slate-400 text-sm whitespace-nowrap">{format(ts, 'MMM d, yyyy')}</td>
+                      <td data-label="Date" className="px-4 py-3 text-slate-400 text-sm whitespace-nowrap">{format(ts, 'MMM d, yyyy')}</td>
                       <SessionTimeCell log={session.clockIn} kind="in" isAdmin={isAdmin} onEdit={setModal} onDelete={handleDelete} />
                       <SessionTimeCell log={session.clockOut} kind="out" isAdmin={isAdmin} onEdit={setModal} onDelete={handleDelete} />
-                      <td className="px-4 py-3 text-slate-400 text-sm font-mono">{formatDuration(session.clockIn?.timestamp, session.clockOut?.timestamp)}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs font-mono">{nfcUid(officer,session.card_uid) || 'No card linked'}</td>
+                      <td data-label="Duration" className="px-4 py-3 text-slate-400 text-sm font-mono">{formatDuration(session.clockIn?.timestamp, session.clockOut?.timestamp)}</td>
+                      <td data-label="Card UID" className="px-4 py-3 text-slate-500 text-xs font-mono">{nfcUid(officer,session.card_uid) || 'No card linked'}</td>
                     </tr>
                   )
                 })}

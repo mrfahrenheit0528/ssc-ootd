@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState } from 'react'
-import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Monitor, Users, History, CalendarDays, Settings, LogOut, ShieldCheck, GraduationCap, Menu, X, BarChart3 } from 'lucide-react'
 import councilLogo from './assets/ssc-logo.png'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -31,6 +31,36 @@ const ADMIN_NAV = [
 function Sidebar({open,onClose}) {
   const { user, isAdmin, logout } = useAuth()
   const navigate = useNavigate()
+  const drawer = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const previousFocus = document.activeElement
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const focusable = () => [...drawer.current.querySelectorAll('a[href], button:not(:disabled)')]
+    focusable()[0]?.focus({ preventScroll: true })
+    const frame = requestAnimationFrame(() => {
+      if (!drawer.current.contains(document.activeElement)) focusable()[0]?.focus({ preventScroll: true })
+    })
+    const keyboard = event => {
+      if (event.key === 'Escape') { event.preventDefault(); onClose() }
+      if (event.key !== 'Tab') return
+      const controls = focusable(), first = controls[0], last = controls.at(-1)
+      if (!drawer.current.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus() }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    const resize = () => { if (window.innerWidth >= 768) onClose() }
+    document.addEventListener('keydown', keyboard)
+    window.addEventListener('resize', resize)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      cancelAnimationFrame(frame)
+      document.removeEventListener('keydown', keyboard)
+      window.removeEventListener('resize', resize)
+      if (previousFocus?.isConnected) previousFocus.focus()
+    }
+  }, [open, onClose])
 
   const handleLogout = async () => {
     await logout()
@@ -39,8 +69,8 @@ function Sidebar({open,onClose}) {
 
   return (<>
     {open && <button className="fixed inset-0 bg-black/60 z-20 md:hidden" aria-label="Close navigation" onClick={onClose} />}
-    <aside className={`fixed inset-y-0 left-0 w-60 flex flex-col bg-slate-900/95 backdrop-blur-md border-r border-white/10 z-30 transition-transform md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
-      <button className="md:hidden absolute right-2 top-2 p-2" aria-label="Close navigation" onClick={onClose}><X className="w-4 h-4" /></button>
+    <aside ref={drawer} id="dashboard-navigation" data-open={open} role={open ? 'dialog' : undefined} aria-modal={open || undefined} aria-label="Main navigation" className={`app-sidebar fixed inset-y-0 left-0 w-60 flex flex-col bg-slate-900/95 backdrop-blur-md border-r border-white/10 z-30 transition-transform md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
+      <button className="md:hidden absolute right-1 top-1 min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg" aria-label="Close navigation" onClick={onClose}><X className="w-5 h-5" /></button>
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-6 border-b border-white/10">
         <img src={councilLogo} alt="CSPC Supreme Student Council logo" width={1437} height={1570} className="w-12 h-14 shrink-0 object-contain" />
@@ -51,7 +81,7 @@ function Sidebar({open,onClose}) {
       </div>
 
       {/* Approved member navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 min-h-0 px-3 py-4 space-y-1 overflow-y-auto" aria-label="Dashboard pages">
         {MEMBER_NAV.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
@@ -123,12 +153,19 @@ function Sidebar({open,onClose}) {
 
 function AppShell() {
   const [navOpen,setNavOpen] = useState(false)
+  const closeNavigation = useCallback(() => setNavOpen(false), [])
+  const { pathname } = useLocation()
+  const pageTitle = [...MEMBER_NAV, ...ADMIN_NAV].find(page => page.to === pathname)?.label || 'Sign In'
   const {error,retry} = useSemester()
   return (
     <div className="flex min-h-screen">
-      <Sidebar open={navOpen} onClose={()=>setNavOpen(false)} />
-      <main className="flex-1 min-w-0 md:ml-60 p-4 md:p-6 lg:p-8 animate-fade-in">
-        <button className="btn-secondary mb-4 md:hidden" aria-expanded={navOpen} onClick={()=>setNavOpen(true)}><Menu className="w-4 h-4" />Menu</button>
+      <Sidebar open={navOpen} onClose={closeNavigation} />
+      <main id="main-content" inert={navOpen ? '' : undefined} className="app-main flex-1 min-w-0 md:ml-60 p-4 md:p-6 lg:p-8 animate-fade-in">
+        <header className="mobile-topbar md:hidden">
+          <img src={councilLogo} alt="SSC" className="h-10 w-10 shrink-0 object-contain" />
+          <div className="min-w-0 flex-1"><p className="text-xs text-slate-400">SSC Attendance</p><p className="font-semibold truncate">{pageTitle}</p></div>
+          <button className="btn-secondary justify-center" aria-label="Open navigation" aria-controls="dashboard-navigation" aria-expanded={navOpen} onClick={()=>setNavOpen(true)}><Menu className="w-5 h-5" />Menu</button>
+        </header>
         {error && <div role="alert" className="card p-4 mb-4 text-red-300">{error}<button className="btn-secondary ml-3" onClick={retry}>Retry semesters</button></div>}
         <Routes>
           {/* Attendance data requires an approved SSC account. */}

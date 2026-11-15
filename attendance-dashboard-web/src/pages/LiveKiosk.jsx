@@ -40,9 +40,9 @@ function SessionRow({ session, isNew, officer }) {
 
   return (
     <tr className={`border-b border-white/5 transition-all duration-500 ${isNew ? 'bg-brand-500/10 animate-fade-in' : 'hover:bg-white/3'}`}>
-      <td className="px-4 py-3">
+      <td data-label="Officer / card" className="px-4 py-3">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500/30 to-violet-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-brand-300">
+          <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-brand-500/30 to-violet-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-brand-300">
             {unlinked ? '?' : officer_name?.charAt(0) ?? '?'}
           </div>
           <div>
@@ -51,10 +51,10 @@ function SessionRow({ session, isNew, officer }) {
           </div>
         </div>
       </td>
-      <td className="px-4 py-3 text-slate-400 text-sm font-mono">
+      <td data-label="Clock in" className="px-4 py-3 text-slate-400 text-sm font-mono">
         {fmt(clockIn?.timestamp)}
       </td>
-      <td className="px-4 py-3 text-sm font-mono">
+      <td data-label="Clock out" className="px-4 py-3 text-sm font-mono">
         {clockOut ? (
           <span className="text-slate-400">{fmt(clockOut.timestamp)}{clockOut.is_auto_closed && <span className="block text-xs text-slate-500">Auto-closed</span>}</span>
         ) : (
@@ -139,7 +139,7 @@ export function LiveKioskBoard({ logs, dayKey, activeSemester, loading, connecte
   return (
     <div className="space-y-6 animate-slide-up">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
             <Monitor className="w-6 h-6 text-brand-400" />
@@ -155,7 +155,7 @@ export function LiveKioskBoard({ logs, dayKey, activeSemester, loading, connecte
             )}
           </p>
         </div>
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+        <div className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
           connected
             ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
             : 'bg-red-500/10 border-red-500/25 text-red-400'
@@ -195,7 +195,7 @@ export function LiveKioskBoard({ logs, dayKey, activeSemester, loading, connecte
             <p className="text-xs opacity-60">Tap an NFC card on the reader to get started.</p>
           </div>
         ) : (
-          <div className="table-wrapper rounded-none border-0">
+          <div className="mobile-records table-wrapper rounded-none border-0">
             <table className="data-table">
               <thead>
                 <tr>

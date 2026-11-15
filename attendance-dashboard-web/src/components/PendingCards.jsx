@@ -16,7 +16,7 @@ export default function PendingCards({ onLink }) {
   return <section className="card p-5 space-y-4 animate-fade-in" aria-labelledby="pending-cards-title">
     <div><h2 id="pending-cards-title" className="font-semibold text-white">Unlinked card scans</h2><p className="text-xs text-slate-400 mt-1">{cards.size} unlinked cards. Pending scans are excluded from officer analytics until you identify the card owner.</p></div>
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[...cards.values()].slice(0,30).map(card=><div key={card.uid} className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between gap-3">
-      <div><p className="font-mono text-sm text-slate-200">{card.uid}</p><p className="text-xs text-slate-500 mt-1">{card.events} events · {dateKey(card.latest)} {formatTime(card.latest)}</p></div><button className="btn-secondary" onClick={()=>onLink(card.uid)}><Link2 className="w-4 h-4" />Link card</button>
+      <div className="min-w-0"><p className="font-mono break-all text-sm text-slate-200">{card.uid}</p><p className="text-xs text-slate-500 mt-1">{card.events} events · {dateKey(card.latest)} {formatTime(card.latest)}</p></div><button className="btn-secondary shrink-0" onClick={()=>onLink(card.uid)}><Link2 className="w-4 h-4" />Link card</button>
     </div>)}</div>{cards.size>30 && <p className="text-xs text-slate-500">Showing the 30 most recently used cards. You can also scan a card while adding or linking an officer.</p>}
   </section>
 }

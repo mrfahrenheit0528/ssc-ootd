@@ -191,14 +191,14 @@ export function OfficerModal({ officer, existingOfficers = [], currentMembers = 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="card w-full max-w-lg p-6 space-y-5 animate-slide-up max-h-[90vh] overflow-y-auto">
+    <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit officer' : 'Add or Link Officer'} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="dialog-panel card w-full max-w-lg p-6 space-y-5 animate-slide-up max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-white text-lg">
             {isEdit ? 'Edit or Link Officer' : 'Add or Link Officer'}
           </h2>
-          <button id="close-modal-btn" disabled={saving} onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+          <button id="close-modal-btn" aria-label="Close officer editor" disabled={saving} onClick={onClose} className="min-h-11 min-w-11 inline-flex items-center justify-center p-2 hover:bg-white/10 rounded-lg transition-colors">
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
@@ -313,7 +313,7 @@ export function OfficerModal({ officer, existingOfficers = [], currentMembers = 
               setPhotoPreview(profile.photo_url||null);setPhotoFile(null)
             }} />}
           {selectedKey && <p className="text-xs text-emerald-300 rounded-lg bg-emerald-500/10 p-3">Linking an existing officer. Imported attendance and future scans will use the same profile.</p>}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="officer-first-name">First Name</label>
               <input id="officer-first-name" className="input" placeholder="Juan"
@@ -596,7 +596,7 @@ export default function OfficerRoster() {
       )}
 
       {isAdmin && !isArchivedView && <PendingCards onLink={uid=>setModal({pending_card_uid:uid})} />}
-      {councilDraft && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4"><div role="dialog" aria-modal="true" aria-label="Manage semester council" className="card w-full max-w-5xl p-6 max-h-[90vh] overflow-y-auto space-y-5">
+      {councilDraft && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4"><div role="dialog" aria-modal="true" aria-label="Manage semester council" className="dialog-panel card w-full max-w-5xl p-6 max-h-[90vh] overflow-y-auto space-y-5">
         <div className="flex justify-between gap-3"><div><h2 className="font-bold text-white text-xl">Manage council & positions</h2><p className="text-xs text-slate-400 mt-1">{selectedSemObj?.name}</p></div><button className="btn-secondary" disabled={savingCouncil} onClick={()=>setCouncilDraft(null)}>Close</button></div>
         <CouncilRosterEditor profiles={profiles} {...councilDraft} onNameChange={name=>setCouncilDraft(draft=>({...draft,name}))} onMembersChange={members=>setCouncilDraft(draft=>({...draft,members}))} onPositionsChange={positions=>setCouncilDraft(draft=>({...draft,positions}))} disabled={savingCouncil} onAddOfficer={()=>setModal('add')} />
         <p className="text-xs text-slate-400">Removing an officer also removes their assignments for today and future dates. Earlier assignments and attendance remain available.</p>
