@@ -13,12 +13,19 @@ import { dateKey, dateBounds } from '../utils/attendanceTime'
 
 export default function Calendar() {
   const { semesters } = useSemester()
+  const [today,setToday] = useState(() => dateKey())
   const [month,setMonth] = useState(() => startOfMonth(parseISO(dateKey())))
   const [semesterId,setSemesterId] = useState('')
   const [result,setResult] = useState(null), [selected,setSelected] = useState(null)
   const [loading,setLoading] = useState(false), [error,setError] = useState('')
   const [retry,setRetry] = useState(0)
   const generation = useRef(0)
+  useEffect(() => {
+    const updateToday = () => setToday(dateKey())
+    const timer = setInterval(updateToday, 30000)
+    document.addEventListener('visibilitychange', updateToday)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', updateToday) }
+  }, [])
   const monthFrom = format(startOfMonth(month),'yyyy-MM-dd'), monthTo = format(endOfMonth(month),'yyyy-MM-dd')
   useEffect(() => {
     const current = ++generation.current
@@ -65,8 +72,8 @@ export default function Calendar() {
       <div style={{'--calendar-weeks':Math.ceil((days[0].getDay()+days.length)/7)}} className={`calendar-month-grid calendar-grid card p-2 sm:p-4 grid grid-cols-7 gap-1 sm:gap-2 ${calendarBusy ? 'calendar-grid-loading' : ''}`}>
       {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div className="text-center text-xs text-slate-400" key={d}>{d}</div>)}
       {Array.from({length:days[0].getDay()},(_,i)=><div key={`pad-${i}`} />)}
-      {days.map(day=>{const ds=format(day,'yyyy-MM-dd'),report=currentScope ? result.days.find(d=>d.date===ds) : null;return <button key={`${ds}|${report ? result.revision : 'loading'}`} data-day-type={report?.dayType} aria-label={report ? `${ds}, ${report.dayTypeLabel}, ${report.requiredAttendedCount} of ${report.requiredCount} assigned present, ${report.voluntaryOfficersCount} volunteers` : ds} disabled={calendarBusy || !report} onClick={()=>setSelected(report)} className={`calendar-day p-1 sm:p-3 min-h-20 sm:min-h-32 rounded-lg border text-left border-white/10 ${report && !calendarBusy ? 'calendar-day-loaded' : ''} ${!report && !calendarBusy ? 'opacity-20' : ''}`}>
-        <span className="flex items-center justify-between gap-0.5"><span className={ds===dateKey()?'text-brand-300 font-bold':'text-slate-200'}>{day.getDate()}</span>{report && <span className="calendar-detail-enter inline-flex"><ScheduleIndicator type={report.scheduleType} dayType={report.dayType} /></span>}</span>{report && <span className="calendar-detail-enter block"><span className="sr-only">{report.dayTypeLabel}</span>{!['unscheduled','no_classes','optional'].includes(report.status) && <span className="hidden sm:block text-xs mt-1">{report.fulfillmentStatus}</span>}<span className="sm:hidden block mt-1 text-[10px] text-slate-300">{report.requiredCount > 0 ? `${report.requiredAttendedCount}/${report.requiredCount}` : ''}</span><span className="hidden sm:block text-xs text-slate-400">Assigned: {report.requiredAttendedCount}/{report.requiredCount}</span>{report.voluntaryOfficersCount>0 && <><span className="sm:hidden block text-[10px] text-violet-300">+{report.voluntaryOfficersCount} vol</span><span className="hidden sm:block text-xs text-violet-300">{report.voluntaryOfficersCount} volunteer(s)</span></>}</span>}
+      {days.map(day=>{const ds=format(day,'yyyy-MM-dd'),report=currentScope ? result.days.find(d=>d.date===ds) : null;return <button key={`${ds}|${report ? result.revision : 'loading'}`} data-day-type={report?.dayType} aria-current={ds === today ? 'date' : undefined} title={ds === today ? 'Today' : undefined} aria-label={report ? `${ds}, ${report.dayTypeLabel}, ${report.requiredAttendedCount} of ${report.requiredCount} assigned present, ${report.voluntaryOfficersCount} volunteers` : ds} disabled={calendarBusy || !report} onClick={()=>setSelected(report)} className={`calendar-day p-1 sm:p-3 min-h-20 sm:min-h-32 rounded-lg border text-left border-white/10 ${report && !calendarBusy ? 'calendar-day-loaded' : ''} ${!report && !calendarBusy ? 'opacity-20' : ''}`}>
+        <span className="flex items-center justify-between gap-0.5"><span className={`calendar-date-number ${ds===today?'text-brand-300 font-bold':'text-slate-200'}`}>{day.getDate()}</span>{report && <span className="calendar-detail-enter inline-flex"><ScheduleIndicator type={report.scheduleType} dayType={report.dayType} /></span>}</span>{report && <span className="calendar-detail-enter block"><span className="sr-only">{report.dayTypeLabel}</span>{!['unscheduled','no_classes','optional'].includes(report.status) && <span className="hidden sm:block text-xs mt-1">{report.fulfillmentStatus}</span>}<span className="sm:hidden block mt-1 text-[10px] text-slate-300">{report.requiredCount > 0 ? `${report.requiredAttendedCount}/${report.requiredCount}` : ''}</span><span className="hidden sm:block text-xs text-slate-400">Assigned: {report.requiredAttendedCount}/{report.requiredCount}</span>{report.voluntaryOfficersCount>0 && <><span className="sm:hidden block text-[10px] text-violet-300">+{report.voluntaryOfficersCount} vol</span><span className="hidden sm:block text-xs text-violet-300">{report.voluntaryOfficersCount} volunteer(s)</span></>}</span>}
       </button>})}
     </div></div>}
     {selected && <div role="dialog" aria-modal="true" aria-labelledby="attendance-day-title" className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 animate-fade-in"><div className="dialog-panel card bg-slate-900 max-w-4xl w-full p-5 max-h-[90vh] overflow-auto space-y-4 animate-slide-up">
