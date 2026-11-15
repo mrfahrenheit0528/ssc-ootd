@@ -68,7 +68,7 @@ function Sidebar({open,onClose}) {
   }
 
   return (<>
-    {open && <button className="fixed inset-0 bg-black/60 z-20 md:hidden" aria-label="Close navigation" onClick={onClose} />}
+    {open && <button className="mobile-nav-scrim fixed inset-0 bg-black/60 z-20 md:hidden" aria-label="Close navigation" onClick={onClose} />}
     <aside ref={drawer} id="dashboard-navigation" data-open={open} role={open ? 'dialog' : undefined} aria-modal={open || undefined} aria-label="Main navigation" className={`app-sidebar fixed inset-y-0 left-0 w-60 flex flex-col bg-slate-900/95 backdrop-blur-md border-r border-white/10 z-30 transition-transform md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
       <button className="md:hidden absolute right-1 top-1 min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg" aria-label="Close navigation" onClick={onClose}><X className="w-5 h-5" /></button>
       {/* Logo */}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BarChart3, RefreshCw, ShieldCheck } from 'lucide-react'
 import AttendanceAnalytics from '../components/AttendanceAnalytics'
 import AnalyticsPeriodFields from '../components/AnalyticsPeriodFields'
+import MobileFilterPanel from '../components/MobileFilterPanel'
 import Select from '../components/Select'
 import { useSemester } from '../contexts/SemesterContext'
 import { useHistoryFilters } from '../hooks/useHistoryFilters'
@@ -16,8 +17,9 @@ export default function Analytics() {
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false)
   const generation = useRef(0)
-  const load = async (from, to, semesterId = '') => {
+  const load = async (from, to, semesterId = '', collapseOnSuccess = false) => {
     const current = ++generation.current
     setError('')
     setLoading(true)
@@ -35,6 +37,7 @@ export default function Analytics() {
       const now = new Date()
       setReport({ data: buildAttendanceAnalytics({ logs, context, dateFrom: from, dateTo: to, now }),
         scope: { from, to, semesterId }, updated: now })
+      if (collapseOnSuccess) setFiltersCollapsed(true)
     } catch (e) {
       if (current === generation.current) setError(`Could not load analytics: ${e.message}`)
     } finally {
@@ -46,24 +49,25 @@ export default function Analytics() {
   const selectedTerm = semesters.find(term => term.id === semesterId)
   const stale = !report || report.scope.from !== from || report.scope.to !== to || report.scope.semesterId !== semesterId
   const ready = !stale && !loading && !error && !semesterLoading && !semesterError
-  const refresh = () => load(from, to, semesterId)
+  const refresh = () => load(from, to, semesterId,true)
   useEffect(() => () => { generation.current++ }, [])
   const preset = days => {
     if (!filters.applyPreset(days)) setError('That date range falls outside the selected semester. Choose another range or semester.')
   }
   return <div className="space-y-6 animate-slide-up analytics-page">
-    <header className="relative overflow-hidden rounded-2xl border border-brand-500/20 bg-gradient-to-br from-brand-950/70 via-slate-900/80 to-slate-950 p-6 sm:p-8">
+    <header className="analytics-hero relative overflow-hidden rounded-2xl border border-brand-500/20 bg-gradient-to-br from-brand-950/70 via-slate-900/80 to-slate-950 p-6 sm:p-8">
       <div className="analytics-glow" aria-hidden="true" />
       <div className="relative flex justify-between items-start gap-4 flex-wrap">
         <div><span className="inline-flex gap-1.5 items-center text-[10px] uppercase tracking-[0.18em] text-brand-300 font-semibold mb-3"><ShieldCheck className="w-3.5 h-3.5" />Attendance insights</span>
           <h1 className="text-2xl sm:text-3xl font-bold text-white flex items-center gap-3"><BarChart3 className="w-7 h-7 text-brand-400" />Attendance Analytics</h1>
           <p className="text-sm text-slate-400 mt-2 max-w-xl leading-relaxed">See participation patterns, understand required attendance, and explore each officer’s contribution.</p>
         </div>
-        <button className="btn-secondary" disabled={loading || semesterLoading || Boolean(semesterError)} onClick={refresh}><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />Refresh report</button>
+        <button className="btn-secondary" aria-label="Refresh report" disabled={loading || semesterLoading || Boolean(semesterError)} onClick={refresh}><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /><span className="sr-only md:not-sr-only">Refresh report</span></button>
       </div>
     </header>
 
-    <form className="card p-5 space-y-4" onSubmit={event => { event.preventDefault(); refresh() }} aria-label="Analytics filters">
+    <form onSubmit={event => { event.preventDefault(); refresh() }} aria-label="Analytics filters">
+      <MobileFilterPanel title="Analytics filters" summary={`${selectedTerm?.name || 'All semesters'} · ${from === to ? from : `${from} to ${to}`}`} collapsed={filtersCollapsed} onCollapsedChange={setFiltersCollapsed} className="card p-5 space-y-4">
       <div className="flex flex-wrap justify-between items-end gap-4">
         <div className="w-full sm:w-80"><label htmlFor="analytics-semester" className="label">Semester</label><Select id="analytics-semester" value={semesterId} disabled={semesterLoading || Boolean(semesterError)} onChange={event => filters.chooseSemester(event.target.value)}>
           <option value="">All semesters / custom period</option>{semesters.map(term => <option key={term.id} value={term.id}>{term.name}{term.status === 'active' ? ' (Active)' : ' (Archived)'}</option>)}
@@ -74,6 +78,7 @@ export default function Analytics() {
         <AnalyticsPeriodFields filters={filters} semester={selectedTerm} disabled={semesterLoading || Boolean(semesterError)} />
         <button className="btn-primary" type="submit" disabled={loading || semesterLoading || Boolean(semesterError)}>{filters.dateMode === 'day' ? 'Analyze day' : 'Analyze attendance'}</button>
       </div>
+      </MobileFilterPanel>
     </form>
 
     {error && <div role="alert" className="card p-5 border-rose-500/20 text-sm text-rose-300 flex items-center gap-3 flex-wrap"><span>{error}</span><button className="btn-secondary" disabled={loading || semesterLoading || Boolean(semesterError)} onClick={refresh}>Retry</button></div>}

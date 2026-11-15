@@ -29,12 +29,12 @@ function AnimatedNumber({ value, suffix = '' }) {
 
 function Metric({ label, value, suffix, detail, icon: Icon, accent, index }) {
   return <article className="card analytics-metric p-5 relative overflow-hidden" style={{ '--accent': accent, animationDelay: `${index * 75}ms` }}>
-    <div className="flex items-center justify-between gap-3 mb-4">
-      <p className="text-sm text-slate-400">{label}</p>
+    <div className="analytics-metric-heading flex items-center justify-between gap-3 mb-4">
+      <p className="analytics-metric-label text-sm text-slate-400">{label}</p>
       <span className="analytics-icon rounded-xl p-2.5"><Icon className="w-5 h-5" /></span>
     </div>
-    <p className="text-3xl font-bold text-white tabular-nums tracking-tight">{value == null ? '—' : <AnimatedNumber value={value} suffix={suffix} />}</p>
-    <p className="text-xs text-slate-400 mt-2 leading-relaxed">{detail}</p>
+    <p className="analytics-metric-value text-3xl font-bold text-white tabular-nums tracking-tight">{value == null ? '—' : <AnimatedNumber value={value} suffix={suffix} />}</p>
+    <p className="analytics-metric-detail text-xs text-slate-400 mt-2 leading-relaxed">{detail}</p>
   </article>
 }
 
@@ -43,7 +43,7 @@ function AttendanceTrend({ daily }) {
   const [selected, setSelected] = useState(0)
   const current = buckets[Math.min(selected, buckets.length - 1)]
   const maximum = Math.max(1, ...buckets.map(b => Object.keys(colors).reduce((n, key) => n + b[key], 0)))
-  return <section className="card p-5 sm:p-6 analytics-enter" style={{ animationDelay: '180ms' }} aria-labelledby="trend-title">
+  return <section className="analytics-trend card p-5 sm:p-6 analytics-enter" style={{ animationDelay: '180ms' }} aria-labelledby="trend-title">
     <div className="flex justify-between gap-4 flex-wrap">
       <div><h2 id="trend-title" className="text-white font-semibold">{daily.length === 1 ? `Attendance on ${shortDate(daily[0].date)}` : 'Attendance over time'}</h2>
         <p className="text-xs text-slate-400 mt-1">{daily.length === 1 ? 'Assigned, absent, pending, and voluntary officers for this day.' : `Officer-days across ${daily.length} days. Hover or select a bar for details.`}</p></div>
@@ -73,7 +73,7 @@ function AttendanceTrend({ daily }) {
 }
 
 function Fulfillment({ summary }) {
-  return <section className="card p-5 sm:p-6 analytics-enter" style={{ animationDelay: '240ms' }} aria-labelledby="fulfillment-title">
+  return <section className="analytics-fulfillment card p-5 sm:p-6 analytics-enter" style={{ animationDelay: '240ms' }} aria-labelledby="fulfillment-title">
     <h2 id="fulfillment-title" className="font-semibold text-white">Required attendance</h2>
     <p className="text-xs text-slate-400 mt-1">Finalized days only · closes at 9 PM</p>
     <div className="relative w-44 h-44 mx-auto my-5">
@@ -159,23 +159,25 @@ export default function AttendanceAnalytics({ data, scope }) {
   const review = summary.incomplete + summary.orphanOuts
   const strongestDay = weekdays.filter(day => day.required).sort((a, b) => b.rate - a.rate || b.required - a.required)[0]
   return <div className="space-y-6">
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="analytics-metrics grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Metric label="Attendance fulfillment" value={summary.rate} suffix="%" detail={`${summary.present} of ${summary.required} finalized duty slots attended`} icon={CheckCircle2} accent="#34d399" index={0} />
       <Metric label="Officers who attended" value={summary.uniqueAttendees} detail={`${summary.visits} visits in this period`} icon={Users} accent="#818cf8" index={1} />
       <Metric label="Recorded hours" value={Math.round(summary.seconds / 3600 * 10) / 10} suffix=" h" detail={`Total completed visit time · ${summary.autoClosed} auto-closed visits included`} icon={Clock3} accent="#38bdf8" index={2} />
       <Metric label="Voluntary attendance" value={summary.voluntaryDays} detail="Officer-days attended without a required assignment" icon={Sparkles} accent="#c084fc" index={3} />
     </div>
     {!summary.visits && <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 p-4 text-sm text-slate-400">No clock-ins in this period. Scheduled duties still appear in the attendance analysis.</div>}
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]"><AttendanceTrend daily={data.daily} /><Fulfillment summary={summary} /></div>
-    <div className="grid gap-6 lg:grid-cols-2">
-      <section className="card p-5 sm:p-6 analytics-enter" style={{ animationDelay: '300ms' }} aria-labelledby="weekday-title"><h2 id="weekday-title" className="font-semibold text-white">Attendance by weekday</h2><p className="text-xs text-slate-400 mt-1 mb-5">Fulfillment of finalized required duties</p>
+    <div className="analytics-layout space-y-6">
+    <div className="analytics-primary grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]"><AttendanceTrend daily={data.daily} /><Fulfillment summary={summary} /></div>
+    <div className="analytics-secondary grid gap-6 lg:grid-cols-2">
+      <section className="analytics-weekday card p-5 sm:p-6 analytics-enter" style={{ animationDelay: '300ms' }} aria-labelledby="weekday-title"><h2 id="weekday-title" className="font-semibold text-white">Attendance by weekday</h2><p className="text-xs text-slate-400 mt-1 mb-5">Fulfillment of finalized required duties</p>
         <div className="space-y-3">{weekdays.map(day => <div key={day.label} className="flex items-center gap-3 text-xs"><span className="w-7 text-slate-400">{day.label}</span><div className="flex-1 rounded-full h-2 bg-white/5 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-sky-400 analytics-bar-x" style={{ width: `${day.rate ?? 0}%` }} /></div><span className="w-24 text-right text-slate-400 tabular-nums">{day.rate == null ? 'No duties' : `${day.present}/${day.required} · ${day.rate}%`}</span></div>)}</div>
       </section>
-      <section className="card p-5 sm:p-6 space-y-5 analytics-enter" style={{ animationDelay: '330ms' }} aria-labelledby="insights-title"><h2 id="insights-title" className="font-semibold text-white flex items-center gap-2"><Activity className="w-4 h-4 text-brand-400" />Period insights</h2>
+      <section className="analytics-insights card p-5 sm:p-6 space-y-5 analytics-enter" style={{ animationDelay: '330ms' }} aria-labelledby="insights-title"><h2 id="insights-title" className="font-semibold text-white flex items-center gap-2"><Activity className="w-4 h-4 text-brand-400" />Period insights</h2>
         <div className="flex gap-3"><span className="rounded-lg p-2 h-fit bg-brand-500/10 text-brand-300"><Sparkles className="w-4 h-4" /></span><div><p className="text-sm text-slate-200">{strongestDay ? `${strongestDay.label} has the highest fulfillment` : 'No finalized assignments yet'}</p><p className="text-xs text-slate-400 mt-1 leading-relaxed">{strongestDay ? `${strongestDay.present} of ${strongestDay.required} duty slots attended (${strongestDay.rate}%). Assignment totals vary by weekday.` : 'Rates appear after a day with required officers reaches its 9 PM cutoff.'}</p></div></div>
         <div className="flex gap-3"><span className={`rounded-lg p-2 h-fit ${review ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-400'}`}><AlertCircle className="w-4 h-4" /></span><div><p className="text-sm text-slate-200">{review ? `${review} attendance records need review` : 'No incomplete or unpaired records'}</p><p className="text-xs text-slate-400 mt-1 leading-relaxed">{summary.incomplete} visits missing a clock-out after cutoff · {summary.orphanOuts} clock-outs without a clock-in. {summary.openVisits} open visits before cutoff.</p></div></div>
         <p className="text-[11px] leading-relaxed text-slate-500 border-t border-white/10 pt-4">Hours use paired clock-ins and clock-outs, including automatic 9 PM closures. Open and unpaired visits add no time. No Classes and Optional attendance is voluntary. Attendance means a recorded clock-in; no minimum-hours rule is applied.</p>
       </section>
+    </div>
     </div>
     <OfficerComparison officers={data.officers} scope={scope} />
   </div>

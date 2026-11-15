@@ -5,6 +5,7 @@
 
 import Select from '../components/Select'
 import AttendanceImportModal from '../components/AttendanceImportModal'
+import MobileFilterPanel from '../components/MobileFilterPanel'
 import { nfcUid } from '../utils/officerIdentity'
 import { useState, useEffect, useRef } from 'react'
 import { listRecords, deleteRecord, saveAttendance, importAttendanceCSV, recoverAttendance, Instant } from '../data'
@@ -193,11 +194,12 @@ export default function LogHistory() {
   const [exporting, setExporting] = useState(false)
   const [modal, setModal] = useState(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false)
   const generation = useRef(0)
   const fetched = Boolean(loadedScope)
   const officerMap = context?.officerMap ?? {}
   const officers = (context?.officers ?? []).filter(o=>o.active !== false)
-  const fetchRange = async (from, to, semesterId = '') => {
+  const fetchRange = async (from, to, semesterId = '', collapseOnSuccess = false) => {
     if (!from || !to || from > to) return toast.error('Choose a valid date range.')
     const semester = semesters.find(s => s.id === semesterId)
     if (semesterId && (!semester || from < semester.start_date || (semester.end_date && to > semester.end_date))) return toast.error('Choose dates within the selected semester.')
@@ -211,13 +213,14 @@ export default function LogHistory() {
       ])
       if (current !== generation.current) return
       setLogs(rows); setContext(ctx); setLoadedScope({from,to,semesterId})
+      if (collapseOnSuccess) setFiltersCollapsed(true)
     } catch (e) { if (current === generation.current) setError('Could not load attendance: ' + e.message) }
     finally { if (current === generation.current) setLoading(false) }
   }
   const filters = useHistoryFilters({ semesters, activeSemester, loading: semesterLoading, error: semesterError, load: fetchRange, today: todayStr })
   const { from: dateFrom, to: dateTo, semesterId: selectedSemester } = filters
   const selectedTerm = semesters.find(s => s.id === selectedSemester)
-  const fetchLogs = () => fetchRange(dateFrom,dateTo,selectedSemester)
+  const fetchLogs = () => fetchRange(dateFrom,dateTo,selectedSemester,true)
   useEffect(() => () => { generation.current++ }, [])
   const applyPreset = days => {
     if (!filters.applyPreset(days)) toast.error('That date range falls outside the selected semester.')
@@ -267,7 +270,7 @@ export default function LogHistory() {
             Browse, filter by semester or custom date range, and export reports.
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="history-actions flex items-center gap-2 flex-wrap">
           {isAdmin && (
             <button id="import-csv-btn" onClick={() => setImportOpen(true)} className="btn-secondary" disabled={semesterLoading || !!semesterError}>
               <Upload className="w-4 h-4" /> Import CSV
@@ -290,7 +293,7 @@ export default function LogHistory() {
             ) : (
               <FileSpreadsheet className="w-4 h-4" />
             )}
-            {exporting ? 'Generating…' : 'Export Report (.xlsx)'}
+            {exporting ? 'Generating…' : <><span className="hidden md:inline">Export Report (.xlsx)</span><span className="md:hidden">Excel report</span></>}
           </button>
           <button
             id="export-csv-btn"
@@ -305,7 +308,7 @@ export default function LogHistory() {
       </div>
 
       {/* Filters Card */}
-      <div className="card p-5 space-y-4">
+      <MobileFilterPanel title="History filters" summary={`${selectedTerm?.name || 'All semesters'} · ${dateFrom} to ${dateTo}`} collapsed={filtersCollapsed} onCollapsedChange={setFiltersCollapsed} className="card p-5 space-y-4">
         {/* Row 1: Semester Selector + Quick Presets */}
         <div className="flex items-center justify-between gap-4 flex-wrap pb-3 border-b border-white/8">
           {/* Semester Selector */}
@@ -373,7 +376,7 @@ export default function LogHistory() {
             {loading ? 'Loading…' : 'Fetch Logs'}
           </button>
         </div>
-      </div>
+      </MobileFilterPanel>
 
       {error && <div role="alert" className="card p-4 text-red-300">{error}<button className="btn-secondary ml-3" onClick={fetchLogs}>Retry</button></div>}
       {stale && fetched && <p className="text-amber-300 text-sm">Filters changed. Click Fetch Logs to load this range before exporting.</p>}

@@ -19,13 +19,13 @@ function StatCard({ icon: Icon, label, value, accent }) {
     amber:   'from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-300',
   }
   return (
-    <div className={`card bg-gradient-to-br ${accents[accent]} p-5 flex items-center gap-4`}>
-      <div className="p-3 bg-white/10 rounded-xl">
+    <div className={`kiosk-stat card bg-gradient-to-br ${accents[accent]} p-5 flex items-center gap-4`}>
+      <div className="kiosk-stat-icon p-3 bg-white/10 rounded-xl">
         <Icon className="w-5 h-5" />
       </div>
       <div>
-        <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">{label}</p>
-        <p className="text-2xl font-bold text-white mt-0.5">{value}</p>
+        <p className="kiosk-stat-label text-xs text-slate-400 font-medium uppercase tracking-wide">{label}</p>
+        <p className="kiosk-stat-value text-2xl font-bold text-white mt-0.5">{value}</p>
       </div>
     </div>
   )
@@ -139,7 +139,7 @@ export function LiveKioskBoard({ logs, dayKey, activeSemester, loading, connecte
   return (
     <div className="space-y-6 animate-slide-up">
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="kiosk-header flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
             <Monitor className="w-6 h-6 text-brand-400" />
@@ -155,7 +155,7 @@ export function LiveKioskBoard({ logs, dayKey, activeSemester, loading, connecte
             )}
           </p>
         </div>
-        <div className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+        <div className={`kiosk-connection shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
           connected
             ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
             : 'bg-red-500/10 border-red-500/25 text-red-400'
@@ -169,7 +169,7 @@ export function LiveKioskBoard({ logs, dayKey, activeSemester, loading, connecte
 
       {error && <div role="alert" className="card p-4 text-amber-300">{error}<button className="btn-secondary ml-3" onClick={onRetry}>Retry</button></div>}
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="kiosk-stats grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard icon={Users}  label="Attendees Today"   value={totalOfficers}            accent="brand"   />
         <StatCard icon={Clock}  label="Currently On Duty" value={Math.max(0, onDutyNow)}  accent="emerald" />
         <StatCard icon={LogOut} label="Clocked Out"       value={clockedOut}               accent="amber"  />
