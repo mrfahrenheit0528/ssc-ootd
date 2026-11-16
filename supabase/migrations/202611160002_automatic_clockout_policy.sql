@@ -1,6 +1,7 @@
 -- Apply once after 202611160001_live_kiosk_photos.sql. No reader reinstall.
 -- New clock-ins only: <=5 PM waits until 9 PM and records 5 PM; >5 PM
--- closes one hour after clock-in. Real clock-outs and earlier history stay intact.
+-- records one hour after clock-in, once both 9 PM and that hour have passed.
+-- Real clock-outs and earlier history stay intact.
 BEGIN;
 INSERT INTO public.system_settings(id,data)
 VALUES('automatic_clockout_policy',jsonb_build_object('effective_from',now()))
@@ -24,7 +25,7 @@ RETURNS TABLE(due_at timestamptz,close_at timestamptz)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
   SELECT CASE WHEN p_clock_in >= (SELECT (data->>'effective_from')::timestamptz FROM public.system_settings WHERE id='automatic_clockout_policy')
       AND (p_clock_in AT TIME ZONE 'Asia/Manila')::time>time '17:00'
-    THEN p_clock_in+interval '1 hour'
+    THEN greatest(p_clock_in+interval '1 hour',(((p_clock_in AT TIME ZONE 'Asia/Manila')::date)+time '21:00') AT TIME ZONE 'Asia/Manila')
     ELSE greatest((((p_clock_in AT TIME ZONE 'Asia/Manila')::date)+time '21:00') AT TIME ZONE 'Asia/Manila',p_clock_in+interval '1 microsecond') END,
     CASE WHEN p_clock_in >= (SELECT (data->>'effective_from')::timestamptz FROM public.system_settings WHERE id='automatic_clockout_policy')
       THEN CASE WHEN (p_clock_in AT TIME ZONE 'Asia/Manila')::time>time '17:00' THEN p_clock_in+interval '1 hour'

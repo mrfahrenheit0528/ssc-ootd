@@ -168,7 +168,8 @@ or unreadable, and keeps `?` for unlinked cards. See [LIVE_KIOSK_PHOTOS.md](LIVE
 After Step 2F, run
 [202611160002_automatic_clockout_policy.sql](../supabase/migrations/202611160002_automatic_clockout_policy.sql)
 once and refresh the dashboard. New clock-ins through 5 PM wait until 9 PM and
-receive an estimated 5 PM clock-out; later clock-ins close one hour after entry.
+receive an estimated 5 PM clock-out; later clock-ins receive one hour after
+entry as their estimate, after both 9 PM and that hour have passed.
 Actual clock-outs and earlier history are preserved. No reader reinstall is
 needed for server records. See [AUTOMATIC_CLOCKOUT.md](AUTOMATIC_CLOCKOUT.md)
 for examples, activation timing and the existing reader's offline limitations.

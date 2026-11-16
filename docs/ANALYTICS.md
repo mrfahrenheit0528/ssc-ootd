@@ -56,7 +56,8 @@ attendance corrections remain admin-only.
 - **Recorded hours:** summed paired clock-in/out durations. Estimated automatic
   clock-outs are included and disclosed. After activating the
   [automatic clock-out policy](AUTOMATIC_CLOCKOUT.md), new clock-ins through
-  5 PM wait until 9 PM and close at 5 PM; later clock-ins close after one hour.
+  5 PM wait until 9 PM and close at 5 PM; later clock-ins receive a one-hour
+  estimate after both the 9 PM waiting window and that hour have passed.
   Earlier records keep their original rule. Overnight automatic hours belong
   to the clock-in date. Open visits and unpaired clock-outs add
   no time. This measures recorded time rather than verified hours worked.

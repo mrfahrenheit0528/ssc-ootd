@@ -12,11 +12,15 @@ The policy applies to clock-ins timestamped at or after SQL activation, in
 | --- | --- | --- |
 | 9 AM | 9 PM | 5 PM |
 | Exactly 5 PM | 9 PM | 5 PM (zero recorded hours) |
-| 6 PM | 7 PM | 7 PM |
+| 6 PM | 9 PM | 7 PM |
 | 8:30 PM | 9:30 PM | 9:30 PM |
 | 11:30 PM | 12:30 AM next day | 12:30 AM next day |
 
-A real clock-out keeps its actual time. If a real scan arrives late from an
+A real clock-out keeps its actual time. The 9 PM waiting window also applies
+to late arrivals: someone clocking in at 6 PM can still record a real 8 PM
+clock-out. Only a missing clock-out becomes the 7 PM estimate at 9 PM.
+If the estimated hour ends after 9 PM, processing waits until that hour ends.
+If a real scan arrives late from an
 offline queue, it supersedes the automatic estimate; the estimate is retained
 as an audited tombstone for linked officers. Automatic times are labeled
 **Auto-closed - estimated** in the dashboard and identified in reports.

@@ -632,7 +632,7 @@ class DatabaseTests(unittest.TestCase):
         original=self.conn.execute("SELECT * FROM public.automatic_clockout_times('2020-09-02T09:00:00+08:00')").fetchone()
         self.assertEqual(original[0],original[1])
         self.enable_new_clockout_policy_for_fixtures()
-        for clock_in,due,close in [('09:00:00','21:00:00','17:00:00'),('17:00:00','21:00:00','17:00:00.000001'),('17:00:01','18:00:01','18:00:01'),('20:30:00','21:30:00','21:30:00')]:
+        for clock_in,due,close in [('09:00:00','21:00:00','17:00:00'),('17:00:00','21:00:00','17:00:00.000001'),('17:00:01','21:00:00','18:00:01'),('18:00:00','21:00:00','19:00:00'),('20:30:00','21:30:00','21:30:00')]:
             values=self.conn.execute("SELECT due_at AT TIME ZONE 'Asia/Manila',close_at AT TIME ZONE 'Asia/Manila' FROM public.automatic_clockout_times(%s)",('2020-09-02T'+clock_in+'+08:00',)).fetchone()
             self.assertEqual(values[0].isoformat(),'2020-09-02T'+due)
             self.assertEqual(values[1].isoformat(),'2020-09-02T'+close)
