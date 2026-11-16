@@ -677,6 +677,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(self.conn.execute("SELECT timestamp AT TIME ZONE 'Asia/Manila' FROM public.pending_card_events WHERE id=%s",(pending_auto,)).fetchone()[0].hour,17)
         self.assertEqual(self.conn.execute("SELECT count(*) FROM public.attendance_audit WHERE operation='policy_backfill'").fetchone()[0],2)
         self.assertEqual(self.conn.execute('SELECT count(*) FROM attendance_maintenance.clockout_corrections').fetchone()[0],3)
+        self.assertTrue(self.conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid='attendance_maintenance.clockout_corrections'::regclass").fetchone()[0])
         self.assertEqual(self.conn.execute("SELECT data FROM public.system_settings WHERE id='automatic_clockout_policy'").fetchone()[0],before_policy)
         self.conn.execute('DROP TABLE pg_temp.clockout_correction_candidates')
         self.conn.execute(correction)

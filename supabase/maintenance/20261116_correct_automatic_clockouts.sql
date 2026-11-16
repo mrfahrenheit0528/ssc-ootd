@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS attendance_maintenance.clockout_corrections (
   before_data jsonb NOT NULL, after_data jsonb, corrected_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY(correction_key,source_table,event_id)
 );
+ALTER TABLE attendance_maintenance.clockout_corrections ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON attendance_maintenance.clockout_corrections FROM PUBLIC,anon,authenticated;
 
 CREATE TEMP TABLE clockout_correction_candidates ON COMMIT DROP AS
