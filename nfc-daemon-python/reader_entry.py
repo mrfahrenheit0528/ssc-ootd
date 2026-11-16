@@ -3,6 +3,7 @@ import argparse
 import json
 import logging
 import platform
+import sqlite3
 import sys
 import wave
 from pathlib import Path
@@ -12,16 +13,32 @@ from config import load_config
 from runtime_paths import app_directory
 from reader_lifecycle import request_stop
 from sound_feedback import SOUND_FILES
+from reader_version import READER_VERSION
+from clockout_policy import validate_policy
 
 
 def installation_check():
-    report = {'frozen': bool(getattr(sys, 'frozen', False)), 'architecture': platform.machine(),
+    report = {'reader_version': READER_VERSION, 'frozen': bool(getattr(sys, 'frozen', False)), 'architecture': platform.machine(),
               'config_valid': False, 'timezone_available': False, 'pcsc_available': False,
-              'readers': [], 'sounds': {}, 'errors': []}
+              'readers': [], 'sounds': {}, 'errors': [], 'clockout_policy_cached': False, 'policy_effective_from': None}
     cfg = None
     try:
         cfg = load_config(str(app_directory() / 'config.json'))
         report['config_valid'] = True
+        database = Path(cfg.db_path)
+        if not database.is_absolute():
+            database = app_directory() / database
+        if database.exists():
+            # Read-only diagnostics never initialize, recover or upload scans.
+            try:
+                from contextlib import closing
+                with closing(sqlite3.connect(database.resolve().as_uri()+'?mode=ro', uri=True)) as conn:
+                    row = conn.execute("SELECT value FROM reader_metadata WHERE key='automatic_clockout_policy'").fetchone()
+                policy = validate_policy(json.loads(row[0])) if row else None
+                report['clockout_policy_cached'] = policy is not None
+                report['policy_effective_from'] = policy['effective_from'] if policy else None
+            except (sqlite3.Error, ValueError, KeyError):
+                report['policy_cache_note'] = 'Connect once after applying the reader policy SQL to cache the current rule.'
     except Exception:
         report['errors'].append('Reader configuration is missing or invalid. Use the private registered config.json.')
     try:
@@ -53,6 +70,7 @@ def installation_check():
 
 def main():
     parser = argparse.ArgumentParser(description='SSC Attendance Reader')
+    parser.add_argument('--version', action='version', version=READER_VERSION)
     parser.add_argument('--check', action='store_true', help='Check local files and PC/SC without changing attendance.')
     parser.add_argument('--report', type=Path, help='Write the local check report here.')
     parser.add_argument('--stop', action='store_true', help='Request a graceful stop of this installation.')

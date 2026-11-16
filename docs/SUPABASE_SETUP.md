@@ -174,6 +174,16 @@ Actual clock-outs and earlier history are preserved. No reader reinstall is
 needed for server records. See [AUTOMATIC_CLOCKOUT.md](AUTOMATIC_CLOCKOUT.md)
 for examples, activation timing and the existing reader's offline limitations.
 
+## 2H. Send the automatic rule to the updated office reader
+
+After Step 2G, run
+[202611160003_reader_clockout_policy.sql](../supabase/migrations/202611160003_reader_clockout_policy.sql)
+once. It preserves activation and attendance, exposes only the versioned
+clock-out rule to registered reader devices, and associates real overnight
+clock-outs with their source visit. Install reader **2026.11.16.1**, then
+connect once to cache the rule for offline use. Follow
+[OFFICE_READER_UPDATE.md](OFFICE_READER_UPDATE.md).
+
 ## 3. Set up website sign-in accounts
 
 ### 3A. Turn off public signups

@@ -1,4 +1,4 @@
-param([string]$DashboardUrl = '')
+param([string]$DashboardUrl = '', [switch]$UpdateOnly)
 $ErrorActionPreference = 'Stop'
 $packageDir = $PSScriptRoot
 $installDir = Join-Path $env:LOCALAPPDATA 'SSC Attendance Reader'
@@ -7,6 +7,9 @@ $taskName = 'SSC_NFC_Attendance_Daemon'
 
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'This package requires 64-bit Windows.' }
 if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'SSCReader.exe'))) { throw 'Extract the complete ZIP before running the installer.' }
+if ($UpdateOnly -and (-not (Test-Path -LiteralPath $exe) -or -not (Test-Path -LiteralPath (Join-Path $installDir 'config.json')))) {
+    throw 'No existing reader was found for this Windows account. Sign in with the office account used for the original installation; this update contains no device credentials or attendance database.'
+}
 if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'config.json')) -and -not (Test-Path -LiteralPath (Join-Path $installDir 'config.json'))) {
     throw 'The private registered config.json is missing. Use the prepared private office package.'
 }
@@ -27,9 +30,19 @@ if (Test-Path -LiteralPath $exe) {
 }
 
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+if (Test-Path -LiteralPath (Join-Path $installDir 'config.json')) {
+    $backupDir = Join-Path $env:LOCALAPPDATA ('SSC Reader Backups\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    Get-ChildItem -LiteralPath $installDir -Force | Copy-Item -Destination $backupDir -Recurse -Force
+    Write-Host "Existing installation backed up to $backupDir" -ForegroundColor Cyan
+}
 Copy-Item -LiteralPath (Join-Path $packageDir 'SSCReader.exe') -Destination $exe -Force
-foreach ($directory in @('_internal', 'sounds')) {
-    Copy-Item -LiteralPath (Join-Path $packageDir $directory) -Destination $installDir -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $packageDir '_internal') -Destination $installDir -Recurse -Force
+$soundTarget = Join-Path $installDir 'sounds'
+New-Item -ItemType Directory -Path $soundTarget -Force | Out-Null
+foreach ($sound in Get-ChildItem -LiteralPath (Join-Path $packageDir 'sounds') -File) {
+    $soundPath = Join-Path $soundTarget $sound.Name
+    if (-not (Test-Path -LiteralPath $soundPath)) { Copy-Item -LiteralPath $sound.FullName -Destination $soundPath }
 }
 foreach ($name in @('config.example.json', 'Check Reader.cmd', 'READ ME FIRST.md')) {
     Copy-Item -LiteralPath (Join-Path $packageDir $name) -Destination (Join-Path $installDir $name) -Force

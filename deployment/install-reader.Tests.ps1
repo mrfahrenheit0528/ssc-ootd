@@ -62,4 +62,26 @@ Describe 'Office reader installer preserves existing private state' {
         Assert-MockCalled Register-ScheduledTask -Times 0 -Exactly -Scope It
         Assert-MockCalled Start-ScheduledTask -Times 0 -Exactly -Scope It
     }
+
+    It 'requires an existing installation for an update-only package' {
+        { & (Join-Path $package 'install-reader.ps1') -UpdateOnly } | Should Throw
+        Assert-MockCalled Start-Process -Times 0 -Exactly -Scope It
+        Assert-MockCalled Register-ScheduledTask -Times 0 -Exactly -Scope It
+    }
+
+    It 'backs up an update and preserves office sounds and the pending queue' {
+        New-Item -ItemType Directory -Path (Join-Path $installed 'sounds') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $installed 'SSCReader.exe') -Value 'old-program'
+        Set-Content -LiteralPath (Join-Path $installed 'config.json') -Value 'office-identity'
+        Set-Content -LiteralPath (Join-Path $installed 'attendance-supabase.db') -Value 'office-pending-scans'
+        Set-Content -LiteralPath (Join-Path $installed 'sounds\success.wav') -Value 'office-custom-audio'
+        Set-Content -LiteralPath (Join-Path $package 'sounds\success.wav') -Value 'package-audio'
+        & (Join-Path $package 'install-reader.ps1') -UpdateOnly
+        (Get-Content -LiteralPath (Join-Path $installed 'sounds\success.wav') -Raw).Trim() | Should Be 'office-custom-audio'
+        (Get-Content -LiteralPath (Join-Path $installed 'attendance-supabase.db') -Raw).Trim() | Should Be 'office-pending-scans'
+        $backup = @(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'SSC Reader Backups') -Directory)
+        $backup.Count | Should Be 1
+        (Get-Content -LiteralPath (Join-Path $backup[0].FullName 'SSCReader.exe') -Raw).Trim() | Should Be 'old-program'
+        (Get-Content -LiteralPath (Join-Path $backup[0].FullName 'config.json') -Raw).Trim() | Should Be 'office-identity'
+    }
 }

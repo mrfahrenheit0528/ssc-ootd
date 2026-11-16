@@ -11,6 +11,16 @@ test('an automatic hour crossing midnight stays paired to its explicit source',(
   assert.equal(sessions[0].clockOut,clockOut)
 })
 
+test('a real overnight clock-out with its source link stays on the clock-in date',()=>{
+  const clockIn={id:'late-real-in',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T23:30:00+08:00'}
+  const clockOut={id:'real-out',card_uid:'A',type:'CLOCK_OUT',timestamp:'2026-11-10T00:15:00+08:00',is_auto_closed:false,auto_close_source_id:clockIn.id,auto_close_source_at:clockIn.timestamp}
+  const sessions=buildAttendanceSessions([clockOut,clockIn])
+  assert.equal(sessions.length,1)
+  assert.equal(sessions[0].date,'2026-11-09')
+  assert.equal(sessions[0].clockOut,clockOut)
+  assert.equal(sessions[0].clockOut.is_auto_closed,false)
+})
+
 test('an automatic source link cannot consume a newer open visit',()=>{
   const first={id:'first',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T18:00:00+08:00'}
   const next={id:'next',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T18:30:00+08:00'}

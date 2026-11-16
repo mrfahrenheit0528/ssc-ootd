@@ -21,6 +21,7 @@ import threading
 from uuid import uuid4, UUID
 import hashlib
 from zoneinfo import ZoneInfo
+from clockout_policy import clockout_times, validate_policy
 
 _LOCK = threading.RLock()
 _ATTENDANCE_ZONE = ZoneInfo("Asia/Manila")
@@ -170,11 +171,18 @@ def get_daily_status(conn: sqlite3.Connection, card_uid: str) -> Optional[str]:
         "ON_DUTY", "OFF_DUTY", or None (no record today or stale record).
     """
     today = today_key()
-    row = conn.execute(
-        "SELECT status FROM daily_state WHERE card_uid = ? AND last_tap_date = ?",
-        (card_uid, today),
-    ).fetchone()
-    return row["status"] if row else None
+    row = conn.execute('SELECT * FROM daily_state WHERE card_uid=?', (card_uid,)).fetchone()
+    if not row:
+        return None
+    if row['last_tap_date'] == today:
+        return row['status']
+    # A late hour can cross midnight. Keep the original visit open until its
+    # actual deadline, rather than treating its card as a fresh day's clock-in.
+    if row['status'] == 'ON_DUTY' and row['last_event_at']:
+        due, _ = clockout_times(parse_time(row['last_event_at']), cached_clockout_policy(conn))
+        if datetime.now(timezone.utc) < due:
+            return 'ON_DUTY'
+    return None
 
 
 @synchronized
@@ -280,6 +288,12 @@ def parse_time(value):
 
 
 @synchronized
+def cached_clockout_policy(conn):
+    row = conn.execute("SELECT value FROM reader_metadata WHERE key='automatic_clockout_policy'").fetchone()
+    return validate_policy(json.loads(row[0])) if row else None
+
+
+@synchronized
 def context_event_ids(conn):
     ids = [r['event_id'] for r in conn.execute('SELECT event_id,timestamp FROM sync_queue').fetchall()
            if parse_time(r['timestamp']).astimezone(_ATTENDANCE_ZONE).date().isoformat() == today_key()]
@@ -300,6 +314,7 @@ def reconcile_context(conn, context):
     previous = conn.execute("SELECT value FROM reader_metadata WHERE key='snapshot_at'").fetchone()
     if previous and parse_time(previous[0]) >= parse_time(snapshot):
         return False
+    policy = validate_policy(context.get('automatic_clockout_policy'))
     day = context['date']
     known = set(context.get('known_event_ids', []))
     events = {e['id']: e for e in context['events'] if not e.get('deleted_at')}
@@ -318,14 +333,16 @@ def reconcile_context(conn, context):
                          (uid,'ON_DUTY' if event['type']=='CLOCK_IN' else 'OFF_DUTY',day,event['id'],event['timestamp']))
         conn.execute("INSERT INTO reader_metadata(key,value) VALUES ('snapshot_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(snapshot,))
         conn.execute("INSERT INTO reader_metadata(key,value) VALUES ('accept_unknown_cards',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",('1' if context.get('accept_unknown_cards',False) else '0',))
+        conn.execute("INSERT INTO reader_metadata(key,value) VALUES ('automatic_clockout_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(json.dumps(policy),))
     return True
 
 
 @synchronized
 def recover_overdue(conn, now=None, close_time='21:00'):
-    """Recover missed cutoffs across reboots, retaining the original duty date."""
+    """Use the cached authoritative rule, retaining source dates and stable IDs."""
     now = now or datetime.now(timezone.utc)
     count = 0
+    policy = cached_clockout_policy(conn)
     with conn:
         for row in conn.execute("SELECT * FROM daily_state WHERE status='ON_DUTY'").fetchall():
             cutoff = datetime.fromisoformat(row['last_tap_date']+'T'+close_time).replace(tzinfo=_ATTENDANCE_ZONE)
@@ -333,12 +350,14 @@ def recover_overdue(conn, now=None, close_time='21:00'):
             if not event_id:
                 old = conn.execute("SELECT event_id,timestamp FROM sync_queue WHERE card_uid=? AND action_type='CLOCK_IN' ORDER BY timestamp DESC,id DESC LIMIT 1",(row['card_uid'],)).fetchone()
                 if old: event_id,event_at = old
-            if event_at: cutoff = max(cutoff,parse_time(event_at)+timedelta(microseconds=1))
+            estimated = cutoff
+            if event_at:
+                cutoff, estimated = clockout_times(parse_time(event_at), policy, close_time)
             if cutoff > now: continue
             # Legacy state-only rows have no source UUID; retain a stable fallback.
             event_id = auto_close_id(event_id or row['card_uid']+':'+row['last_tap_date'])
             conn.execute('INSERT OR IGNORE INTO sync_queue(card_uid,action_type,timestamp,is_auto_closed,event_id) VALUES (?,?,?,?,?)',
-                         (row['card_uid'],'CLOCK_OUT',cutoff.isoformat(),1,event_id))
-            conn.execute("UPDATE daily_state SET status='OFF_DUTY',last_event_id=?,last_event_at=? WHERE card_uid=?",(event_id,cutoff.isoformat(),row['card_uid']))
+                         (row['card_uid'],'CLOCK_OUT',estimated.isoformat(),1,event_id))
+            conn.execute("UPDATE daily_state SET status='OFF_DUTY',last_event_id=?,last_event_at=? WHERE card_uid=?",(event_id,estimated.isoformat(),row['card_uid']))
             count += 1
     return count

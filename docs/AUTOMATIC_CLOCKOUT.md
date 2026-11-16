@@ -33,6 +33,13 @@ in history, calendar reports, exports and analytics.
 
 ## Existing office reader
 
+For matching local/offline behavior, use the
+[version 2026.11.16.1 update instructions](OFFICE_READER_UPDATE.md) and apply
+`202611160003_reader_clockout_policy.sql`. That reader caches the authoritative
+activation time, preserves the office queue and settings, and uses the same
+clock-out rule offline after its first successful policy download. The
+limitations below describe the older November 15 reader.
+
 Supabase is authoritative for uploaded records. The upgrade accepts the existing
 reader's stable automatic-event UUIDs, converts its 9 PM uploads to the correct
 estimate, and acknowledges retries without duplicating or overwriting corrected

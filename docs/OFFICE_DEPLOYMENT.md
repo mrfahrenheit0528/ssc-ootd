@@ -137,6 +137,12 @@ office database or config with an old development copy. For the first transfer,
 rebuild the handoff after stopping the old reader so no later offline records
 are stranded. Keep the old private files as a backup until the office test passes.
 
+For the current clock-out policy update, use the generic `--update-only` build
+and **Update Reader.cmd** as described in [OFFICE_READER_UPDATE.md](OFFICE_READER_UPDATE.md).
+It contains no private configuration or development attendance. The updater
+backs up an existing installation, preserves its state/custom sounds, and
+requires the same Windows account as the original installation.
+
 Prepared packaging and automated checks do not replace this final test on the
 actual office PC. Hosting/account changes still need to be carried out in your
 Cloudflare and Supabase accounts; building the package does not publish a site.

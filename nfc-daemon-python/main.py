@@ -155,7 +155,6 @@ def _run() -> None:
         db_path = str(app_directory() / db_path)
     conn = db.get_connection(db_path)
     db.init_db(conn)
-    db.recover_overdue(conn, close_time=cfg.auto_close_time)
     cloud = CloudClient(cfg.supabase_url, cfg.supabase_publishable_key, cfg.device_id, cfg.device_token)
     registry = ReaderContext(conn, cloud)
     try:
@@ -163,6 +162,11 @@ def _run() -> None:
         logger.info('Supabase connected; local officer roster refreshed.')
     except Exception as exc:
         logger.warning('Starting with the locally cached roster: %s', exc)
+    if db.cached_clockout_policy(conn) is None:
+        logger.warning('Automatic clock-out policy is not cached. Apply 202611160003_reader_clockout_policy.sql and connect once; using the original rule until then.')
+    else:
+        logger.info('Automatic clock-out policy v1 cached; online and offline recovery use the server activation time.')
+    db.recover_overdue(conn, close_time=cfg.auto_close_time)
     syncer = SupabaseSyncer(conn, cloud, cfg.sync_interval_seconds)
     scheduler = AutoCloseScheduler(conn, cfg.auto_close_time)
     feedback = SoundFeedback(cfg.sounds_directory, enabled=cfg.sounds_enabled)

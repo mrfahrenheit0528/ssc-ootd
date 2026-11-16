@@ -637,6 +637,28 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(values[0].isoformat(),'2020-09-02T'+due)
             self.assertEqual(values[1].isoformat(),'2020-09-02T'+close)
 
+    def test_reader_policy_cache_is_scoped_and_preserves_the_original_activation(self):
+        expected=self.conn.execute("SELECT data->>'effective_from' FROM public.system_settings WHERE id='automatic_clockout_policy'").fetchone()[0]
+        self.role(anonymous=True)
+        context=self.conn.execute('SELECT public.reader_context(%s,%s)',(DEVICE,TOKEN)).fetchone()[0]
+        self.assertEqual(context['automatic_clockout_policy'],{'version':1,'effective_from':expected})
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
+            self.conn.execute('SELECT public.reader_context(%s,%s)',(DEVICE,'invalid'))
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
+            self.conn.execute('SELECT public.reader_context_before_policy_cache(%s,%s)',(DEVICE,TOKEN))
+
+    def test_real_overnight_out_is_linked_to_its_source_and_never_deleted_as_an_estimate(self):
+        self.enable_new_clockout_policy_for_fixtures()
+        for card in ['AAAA1111','UNKNOWN1']:
+            source=self.event(card_uid=card,timestamp='2020-09-02T23:30:00+08:00')
+            actual=self.event(card_uid=card,action_type='CLOCK_OUT',timestamp='2020-09-03T00:15:00+08:00')
+            self.role(anonymous=True);self.ingest([source,actual]);self.role(ADMIN)
+            table='attendance_logs' if card=='AAAA1111' else 'pending_card_events'
+            row=self.conn.execute('SELECT auto_close_source_id,is_auto_closed FROM public.'+table+' WHERE id=%s',(actual['event_id'],)).fetchone()
+            self.assertEqual(row,(UUID(source['event_id']),False))
+            self.assertEqual(self.conn.execute('SELECT public.recover_due_attendance()').fetchone()[0],0)
+            self.assertEqual(self.conn.execute('SELECT count(*) FROM public.'+table).fetchone()[0],2)
+
     def test_new_clockout_recovery_and_legacy_reader_retry_use_five_pm(self):
         self.enable_new_clockout_policy_for_fixtures()
         event=self.event(timestamp='2020-09-02T09:00:00+08:00')
