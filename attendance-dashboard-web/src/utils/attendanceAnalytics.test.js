@@ -27,6 +27,28 @@ test('repeat visits count once toward assigned attendance and sum completed time
   assert.equal(result.officers.find(o => o.uid === 'A').assignedDays, 1)
 })
 
+test('estimated five PM closures and late one-hour visits contribute their recorded durations',()=>{
+  const early=event('A','CLOCK_IN','09:00:00')
+  const late=event('B','CLOCK_IN','23:30:00')
+  const result=analyze({logs:[early,event('A','CLOCK_OUT','17:00:00',{is_auto_closed:true,auto_close_source_id:early.id,auto_close_source_at:early.timestamp}),late,
+    {id:'late-out',card_uid:'B',type:'CLOCK_OUT',timestamp:'2026-11-10T00:30:00+08:00',is_auto_closed:true,auto_close_source_id:late.id,auto_close_source_at:late.timestamp}]})
+  assert.equal(result.summary.seconds,9*3600)
+  assert.equal(result.summary.autoClosed,2)
+  assert.equal(result.summary.orphanOuts,0)
+  assert.equal(result.summary.incomplete,0)
+})
+
+test('late visits remain open until their own hour ends even after the attendance day finalizes',()=>{
+  const logs=[event('A','CLOCK_IN','20:30:00',{automatic_clockout_due_at:'2026-11-09T21:30:00+08:00'})]
+  const waiting=analyze({logs,now:new Date('2026-11-09T21:15:00+08:00')})
+  assert.equal(waiting.summary.openVisits,1)
+  assert.equal(waiting.summary.incomplete,0)
+  assert.equal(waiting.summary.seconds,0)
+  const overdue=analyze({logs,now:new Date('2026-11-09T21:31:00+08:00')})
+  assert.equal(overdue.summary.incomplete,1)
+  assert.equal(overdue.summary.openVisits,0)
+})
+
 test('applying weekly duties to historical import dates changes fulfillment without losing visits or recorded hours', () => {
   const imported=[event('A','CLOCK_IN','09:00:00',{manually_edited:true}),event('A','CLOCK_OUT','17:00:00',{manually_edited:true})]
   const before={...context,calendarDays:[{semester_id:'term',date:'2026-11-09',type:'regular',schedule_version_id:'empty',required_uids:[],inherited_unassigned:true}],

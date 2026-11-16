@@ -21,19 +21,21 @@ export function latestAttendanceByOfficer(logs) {
 export function buildAttendanceSessions(logs) {
   const chronological = [...logs].sort(compareEvents)
   const open = new Map()
+  const byClockIn = new Map()
   const sessions = []
   for (const log of chronological) {
-    const date = dateKey(log.timestamp)
+    const date = dateKey(log.auto_close_source_at ?? log.timestamp)
     const key = JSON.stringify([log.card_uid, date])
     if (log.type === 'CLOCK_IN') {
       const session = { date, card_uid: log.card_uid, officer_name: log.officer_name, clockIn: log, clockOut: null }
       open.set(key, session)
+      if (log.id) byClockIn.set(log.id, session)
       sessions.push(session)
     } else if (log.type === 'CLOCK_OUT') {
-      const session = open.get(key)
+      const session = log.auto_close_source_id ? byClockIn.get(log.auto_close_source_id) : open.get(key)
       if (session) {
         session.clockOut = log
-        open.delete(key)
+        if (open.get(key) === session) open.delete(key)
       } else {
         sessions.push({ date, card_uid: log.card_uid, officer_name: log.officer_name, clockIn: null, clockOut: log })
       }

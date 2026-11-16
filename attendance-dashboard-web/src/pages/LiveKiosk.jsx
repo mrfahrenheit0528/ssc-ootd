@@ -63,7 +63,7 @@ function SessionRow({ session, isNew, officer }) {
       </td>
       <td data-label="Clock out" className="px-4 py-3 text-sm font-mono">
         {clockOut ? (
-          <span className="text-slate-400">{fmt(clockOut.timestamp)}{clockOut.is_auto_closed && <span className="block text-xs text-slate-500">Auto-closed</span>}</span>
+          <span className="text-slate-400">{fmt(clockOut.timestamp)}{clockOut.is_auto_closed && <span className="block text-xs text-slate-500">Auto-closed · estimated</span>}</span>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-emerald-400">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />

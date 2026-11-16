@@ -139,7 +139,7 @@ function LogEditModal({ log, officers, onClose, onSave }) {
           {/* Auto-closed flag */}
           <label className="flex items-center gap-3 cursor-pointer">
             <input type="checkbox" checked={isAuto} onChange={e => setIsAuto(e.target.checked)} className="accent-indigo-500" />
-            <span className="text-sm text-slate-300">Mark as auto-closed (9 PM scheduler)</span>
+            <span className="text-sm text-slate-300">Mark as automatic / estimated clock-out</span>
           </label>
         </div>
 
@@ -162,7 +162,7 @@ function SessionTimeCell({ log, kind, isAdmin, onEdit, onDelete }) {
       {log ? <div className="flex flex-wrap items-center gap-2">
         <div>
           <p className="text-slate-400 font-mono whitespace-nowrap">{formatTime(log.timestamp)}</p>
-          {log.is_auto_closed && <p className="text-xs text-slate-500">Auto-closed</p>}
+          {log.is_auto_closed && <p className="text-xs text-slate-500">Auto-closed · estimated</p>}
         </div>
         {isAdmin && <div className="flex items-center gap-1">
           <button onClick={() => onEdit(log)} title={`Edit ${label}`} aria-label={`Edit ${label} for ${log.officer_name ?? log.card_uid}`}

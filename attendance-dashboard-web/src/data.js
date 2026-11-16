@@ -11,6 +11,7 @@ export class Instant {
 }
 export function createDataAccess(getClient = client) {
   const photoCache = new Map()
+  let supportsAutomaticSources = true
   function clearPhotoCache() { photoCache.clear() }
   const jsonTables = new Set(['day_config', 'system_settings'])
   const keyFor = table => table === 'officers' ? 'card_uid' : 'id'
@@ -21,7 +22,7 @@ export function createDataAccess(getClient = client) {
   }
   function normalizeRecord(table, row) {
     const record = jsonTables.has(table) ? { id: row.id, ...row.data } : { ...row }
-    for (const key of ['timestamp', 'created_at', 'ended_at', 'updated_at', 'opened_at', 'expires_at', 'status_at']) {
+    for (const key of ['timestamp', 'created_at', 'ended_at', 'updated_at', 'opened_at', 'expires_at', 'status_at', 'auto_close_source_at', 'automatic_clockout_due_at']) {
       if (typeof record[key] === 'string') record[key] = new Instant(record[key])
     }
     return record
@@ -63,17 +64,29 @@ export function createDataAccess(getClient = client) {
       if (table === 'officers' && !options.includeInactive) q = q.eq('active', true)
       if (table === 'attendance_logs') q = q.is('deleted_at', null)
       for (const key of options.isNull ?? []) q = q.is(key, null)
-      if (options.from) q = q.gte('timestamp', new Date(options.from).toISOString())
-      if (options.to) q = q.lte('timestamp', new Date(options.to).toISOString())
-      if (options.until) q = q.lt('timestamp', new Date(options.until).toISOString())
+      const bounds = [['from','gte'],['to','lte'],['until','lt']].filter(([key]) => options[key])
+      if (table === 'attendance_logs' && supportsAutomaticSources && bounds.length) {
+        // Include a one-hour automatic closure crossing midnight with its source
+        // visit, then filter by that visit's date below.
+        q = q.or(['timestamp','auto_close_source_at'].map(column => `and(${bounds.map(([key,op]) => `${column}.${op}.${new Date(options[key]).toISOString()}`).join(',')})`).join(','))
+      } else for (const [key,op] of bounds) q = q[op]('timestamp', new Date(options[key]).toISOString())
       for (const [key, value] of Object.entries(options.filters ?? {})) q = q.eq(key, value)
       if (options.orderBy) q = q.order(options.orderBy, { ascending: options.ascending ?? false })
       q = q.order(keyFor(table), { ascending: true }).range(offset, offset + 499)
-      const rows = check(await q)
+      const result = await q
+      if (table === 'attendance_logs' && supportsAutomaticSources && ['42703','PGRST204'].includes(result.error?.code) && result.error.message?.includes('auto_close_source_at')) {
+        supportsAutomaticSources = false
+        return listRecords(table, options) // Allow the web update before SQL is applied.
+      }
+      const rows = check(result)
       all.push(...rows.map(row => normalizeRecord(table, row)))
       if (rows.length < 500) break
     }
-    return attachPhotos(all, table)
+    const records = table === 'attendance_logs' ? all.filter(row => {
+      const at = (row.auto_close_source_at ?? row.timestamp).toMillis()
+      return (!options.from || at >= new Date(options.from).getTime()) && (!options.to || at <= new Date(options.to).getTime()) && (!options.until || at < new Date(options.until).getTime())
+    }) : all
+    return attachPhotos(records, table)
   }
   async function getRecord(table, id) {
     const row = check(await getClient().from(table).select('*').eq(keyFor(table), id).maybeSingle())

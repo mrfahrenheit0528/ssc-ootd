@@ -53,8 +53,12 @@ attendance corrections remain admin-only.
   use one profile. Unknown-card events appear only after an admin links them.
 - **Voluntary attendance:** distinct officer/date combinations without a required
   assignment. No Classes and Optional days require nobody and create no absences.
-- **Recorded hours:** summed paired clock-in/out durations. Automatic 9 PM
-  clock-outs are included and disclosed. Open visits and unpaired clock-outs add
+- **Recorded hours:** summed paired clock-in/out durations. Estimated automatic
+  clock-outs are included and disclosed. After activating the
+  [automatic clock-out policy](AUTOMATIC_CLOCKOUT.md), new clock-ins through
+  5 PM wait until 9 PM and close at 5 PM; later clock-ins close after one hour.
+  Earlier records keep their original rule. Overnight automatic hours belong
+  to the clock-in date. Open visits and unpaired clock-outs add
   no time. This measures recorded time rather than verified hours worked.
   It helps describe total time contributed alongside attendance fulfillment;
   long visits do not fill other duty dates. Guessed logbook times make mock

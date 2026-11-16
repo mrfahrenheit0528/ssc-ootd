@@ -1,5 +1,25 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+
+test('an automatic hour crossing midnight stays paired to its explicit source',()=>{
+  const clockIn={id:'late-in',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T23:30:00+08:00'}
+  const clockOut={id:'auto',card_uid:'A',type:'CLOCK_OUT',timestamp:'2026-11-10T00:30:00+08:00',is_auto_closed:true,auto_close_source_id:'late-in',auto_close_source_at:clockIn.timestamp}
+  const sessions=buildAttendanceSessions([clockOut,clockIn])
+  assert.equal(sessions.length,1)
+  assert.equal(sessions[0].date,'2026-11-09')
+  assert.equal(sessions[0].clockIn,clockIn)
+  assert.equal(sessions[0].clockOut,clockOut)
+})
+
+test('an automatic source link cannot consume a newer open visit',()=>{
+  const first={id:'first',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T18:00:00+08:00'}
+  const next={id:'next',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T18:30:00+08:00'}
+  const auto={id:'auto',card_uid:'A',type:'CLOCK_OUT',timestamp:'2026-11-09T19:00:00+08:00',is_auto_closed:true,auto_close_source_id:'first',auto_close_source_at:first.timestamp}
+  const actual={id:'actual',card_uid:'A',type:'CLOCK_OUT',timestamp:'2026-11-09T19:30:00+08:00'}
+  const sessions=buildAttendanceSessions([actual,auto,next,first])
+  assert.equal(sessions.find(row=>row.clockIn.id==='first').clockOut,auto)
+  assert.equal(sessions.find(row=>row.clockIn.id==='next').clockOut,actual)
+})
 import { buildAttendanceSessions, filterAttendanceSessions, latestAttendanceByOfficer } from './attendanceSessions.js'
 
 function log(id, uid, type, time) {

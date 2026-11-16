@@ -163,6 +163,16 @@ identified attendees. Full roster/photo management remains admin-only.
 Live Kiosk shows the uploaded photo, falls back to the first initial if absent
 or unreadable, and keeps `?` for unlinked cards. See [LIVE_KIOSK_PHOTOS.md](LIVE_KIOSK_PHOTOS.md).
 
+## 2G. Use the 5 PM / one-hour automatic clock-out rule
+
+After Step 2F, run
+[202611160002_automatic_clockout_policy.sql](../supabase/migrations/202611160002_automatic_clockout_policy.sql)
+once and refresh the dashboard. New clock-ins through 5 PM wait until 9 PM and
+receive an estimated 5 PM clock-out; later clock-ins close one hour after entry.
+Actual clock-outs and earlier history are preserved. No reader reinstall is
+needed for server records. See [AUTOMATIC_CLOCKOUT.md](AUTOMATIC_CLOCKOUT.md)
+for examples, activation timing and the existing reader's offline limitations.
+
 ## 3. Set up website sign-in accounts
 
 ### 3A. Turn off public signups

@@ -44,7 +44,7 @@ export function resolveDayWithDraft(dayValue, context = {}, draftSchedule, today
 }
 
 export function reportDays(from, to, logs = []) {
-  if (!from || !to) return [...new Set(logs.map(l => dateKey(l.timestamp)))].sort()
+  if (!from || !to) return [...new Set(logs.map(l => dateKey(l.auto_close_source_at ?? l.timestamp)))].sort()
   if (from > to) throw new Error('From date must be on or before To date.')
   const days = []
   for (let day = from; day <= to; day = addDateDays(day, 1)) {
@@ -69,12 +69,13 @@ export function analyzeAttendanceData({ logs = [], dateFrom, dateTo, context = {
     const rows = sessions.filter(s => s.date === date).map(s => {
       const officer = roster[s.card_uid] ?? officerMap[s.card_uid]
       const assigned = cfg.required_uids.includes(s.card_uid)
+      const visitClosed = s.clockIn?.automatic_clockout_due_at ? toDate(now) >= toDate(s.clockIn.automatic_clockout_due_at) : closed
       return { ...s, nfc_uid: nfcUid(officer,s.card_uid), officer_name: s.officer_name || (officer ? `${officer.first_name} ${officer.last_name}` : s.card_uid), position: officer?.position ?? '—', isAssigned: assigned,
         assignment: assigned ? 'Assigned Officer of the Day' : 'Voluntary / Not Required',
-        status: !s.clockIn ? 'Needs Review' : s.clockOut ? 'Present' : closed ? 'Incomplete' : 'On Duty',
+        status: !s.clockIn ? 'Needs Review' : s.clockOut ? 'Present' : visitClosed ? 'Incomplete' : 'On Duty',
         clockInTime: formatTime(s.clockIn?.timestamp), clockOutTime: s.clockOut ? formatTime(s.clockOut.timestamp) : 'Not recorded',
         duration: formatDuration(s.clockIn?.timestamp, s.clockOut?.timestamp), isAutoClosed: s.clockOut?.is_auto_closed ? 'Yes' : 'No',
-        remarks: s.clockIn?.manually_edited || s.clockOut?.manually_edited ? 'Manually Edited' : '' }
+        remarks: [s.clockIn?.manually_edited || s.clockOut?.manually_edited ? 'Manually Edited' : '', s.clockOut?.is_auto_closed ? 'Estimated automatic clock-out' : ''].filter(Boolean).join('; ') }
     })
     for (const uid of cfg.required_uids.filter(uid => !attended.has(uid))) {
       const officer = roster[uid]

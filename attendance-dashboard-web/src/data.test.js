@@ -116,10 +116,36 @@ test('deleting attendance requires a reason through the audited RPC', async () =
 
 test('attendance queries use an exclusive school-day upper bound',async()=>{
   const repo=repository(url=>{
-    assert.equal(url.searchParams.get('timestamp'),'lt.2026-11-10T16:00:00.000Z')
+    assert.equal(url.searchParams.get('or'),'(and(timestamp.lt.2026-11-10T16:00:00.000Z),and(auto_close_source_at.lt.2026-11-10T16:00:00.000Z))')
     return json([])
   })
   await repo.listRecords('attendance_logs',{until:'2026-11-11T00:00:00+08:00'})
+})
+
+test('overnight automatic hours are fetched with their clock-in day and adjacent source days stay excluded',async()=>{
+  const repo=repository(url=>{
+    assert.match(url.searchParams.get('or'),/auto_close_source_at.gte/)
+    return json([
+      {id:'in',card_uid:'A',type:'CLOCK_IN',timestamp:'2026-11-09T23:30:00+08:00'},
+      {id:'auto',card_uid:'A',type:'CLOCK_OUT',timestamp:'2026-11-10T00:30:00+08:00',auto_close_source_at:'2026-11-09T23:30:00+08:00',auto_close_source_id:'in',is_auto_closed:true},
+      {id:'yesterday-auto',card_uid:'B',type:'CLOCK_OUT',timestamp:'2026-11-09T00:30:00+08:00',auto_close_source_at:'2026-11-08T23:30:00+08:00',auto_close_source_id:'old',is_auto_closed:true},
+    ])
+  })
+  const rows=await repo.listRecords('attendance_logs',{from:'2026-11-09T00:00:00+08:00',until:'2026-11-10T00:00:00+08:00'})
+  assert.deepEqual(rows.map(row=>row.id),['in','auto'])
+  assert.equal(rows[1].auto_close_source_at.toDate().toISOString(),'2026-11-09T15:30:00.000Z')
+})
+
+test('a dashboard deployed before the policy SQL safely falls back to original attendance queries',async()=>{
+  let count=0
+  const repo=repository(url=>{
+    if(++count===1)return json({code:'42703',message:'column attendance_logs.auto_close_source_at does not exist'},400)
+    assert.equal(url.searchParams.get('or'),null)
+    assert.equal(url.searchParams.get('timestamp'),'lt.2026-11-09T16:00:00.000Z')
+    return json([])
+  })
+  await repo.listRecords('attendance_logs',{until:'2026-11-10T00:00:00+08:00'})
+  assert.equal(count,2)
 })
 
 test('failed authorization propagates to the UI instead of reporting success', async () => {

@@ -186,4 +186,29 @@ class TestSupabaseSync(unittest.TestCase):
         self.assertEqual(len(db.get_unsynced_events(self.conn)),1)
 
 
+    def test_authoritative_five_pm_closure_wins_over_the_unchanged_local_nine_pm_queue(self):
+        day=db.today_key()
+        source='10000000-0000-0000-0000-000000000001'
+        automatic=db.auto_close_id(source)
+        with self.conn:
+            self.conn.execute("INSERT INTO sync_queue(card_uid,action_type,timestamp,is_auto_closed,event_id) VALUES ('AAAA1111','CLOCK_IN',?,0,?),('AAAA1111','CLOCK_OUT',?,1,?)",(day+'T09:00:00+08:00',source,day+'T21:00:00+08:00',automatic))
+        context={'snapshot_at':day+'T21:01:00+08:00','date':day,'known_event_ids':[source,automatic],
+                 'events':[{'id':source,'card_uid':'AAAA1111','type':'CLOCK_IN','timestamp':day+'T09:00:00+08:00'},
+                           {'id':automatic,'card_uid':'AAAA1111','type':'CLOCK_OUT','timestamp':day+'T17:00:00+08:00','is_auto_closed':True}]}
+        db.reconcile_context(self.conn,context)
+        state=self.conn.execute("SELECT status,last_event_at FROM daily_state WHERE card_uid='AAAA1111'").fetchone()
+        self.assertEqual(tuple(state),('OFF_DUTY',day+'T17:00:00+08:00'))
+        self.assertEqual(len(db.get_unsynced_events(self.conn)),2,'normal reconciliation preserves the durable upload queue')
+
+    def test_an_acknowledged_early_auto_receipt_does_not_invent_a_future_local_closure(self):
+        day=db.today_key()
+        source='10000000-0000-0000-0000-000000000001'
+        automatic=db.auto_close_id(source)
+        with self.conn:
+            self.conn.execute("INSERT INTO sync_queue(card_uid,action_type,timestamp,is_auto_closed,event_id) VALUES ('AAAA1111','CLOCK_IN',?,0,?),('AAAA1111','CLOCK_OUT',?,1,?)",(day+'T20:30:00+08:00',source,day+'T21:00:00+08:00',automatic))
+        context={'snapshot_at':day+'T21:01:00+08:00','date':day,'known_event_ids':[source,automatic],
+                 'events':[{'id':source,'card_uid':'AAAA1111','type':'CLOCK_IN','timestamp':day+'T20:30:00+08:00'}]}
+        db.reconcile_context(self.conn,context)
+        self.assertEqual(db.get_daily_status(self.conn,'AAAA1111'),'ON_DUTY')
+
 if __name__ == '__main__': unittest.main()

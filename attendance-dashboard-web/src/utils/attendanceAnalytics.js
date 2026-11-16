@@ -47,7 +47,7 @@ export function buildAttendanceAnalytics({ logs = [], context = {}, now = new Da
         seconds += duration
         if (row.clockOut.is_auto_closed) officer.autoClosed++
       } else if (row.clockIn) {
-        if (closed) officer.incomplete++
+        if (row.status === 'Incomplete') officer.incomplete++
         else officer.openVisits++
       } else if (row.clockOut) officer.orphanOuts++
     }

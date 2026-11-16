@@ -298,7 +298,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(len(snapshot['events']),1)
         live=snapshot['events'][0]
         self.assertEqual((live['card_uid'],live['nfc_uid'],live['officer_name'],live['is_unlinked']),('unlinked:UNKNOWN1','UNKNOWN1',None,True))
-        self.assertEqual(set(live),{'id','card_uid','nfc_uid','officer_name','type','timestamp','is_auto_closed','created_at','is_unlinked','photo_id'})
+        self.assertEqual(set(live),{'id','card_uid','nfc_uid','officer_name','type','timestamp','is_auto_closed','created_at','is_unlinked','photo_id','auto_close_source_id','auto_close_source_at','automatic_clockout_due_at'})
         self.assertIsNone(live['photo_id'])
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events').fetchone()[0],0,'raw pending archive remains admin-only')
         self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs').fetchone()[0],0,'unknown cards stay out of officer attendance reports')
@@ -624,6 +624,108 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(auto[1].isoformat(),'2026-11-09T21:00:00')
         self.role(anonymous=True)
         self.assertEqual(self.ingest([self.event(event_id=str(auto[0]),action_type='CLOCK_OUT',timestamp='2026-11-09T21:00:00+08:00',is_auto_closed=True)]),1)
+
+    def enable_new_clockout_policy_for_fixtures(self):
+        self.conn.execute("UPDATE public.system_settings SET data=jsonb_build_object('effective_from','2019-01-01T00:00:00Z') WHERE id='automatic_clockout_policy'")
+
+    def test_new_clockout_boundaries_and_historical_activation(self):
+        original=self.conn.execute("SELECT * FROM public.automatic_clockout_times('2020-09-02T09:00:00+08:00')").fetchone()
+        self.assertEqual(original[0],original[1])
+        self.enable_new_clockout_policy_for_fixtures()
+        for clock_in,due,close in [('09:00:00','21:00:00','17:00:00'),('17:00:00','21:00:00','17:00:00.000001'),('17:00:01','18:00:01','18:00:01'),('20:30:00','21:30:00','21:30:00')]:
+            values=self.conn.execute("SELECT due_at AT TIME ZONE 'Asia/Manila',close_at AT TIME ZONE 'Asia/Manila' FROM public.automatic_clockout_times(%s)",('2020-09-02T'+clock_in+'+08:00',)).fetchone()
+            self.assertEqual(values[0].isoformat(),'2020-09-02T'+due)
+            self.assertEqual(values[1].isoformat(),'2020-09-02T'+close)
+
+    def test_new_clockout_recovery_and_legacy_reader_retry_use_five_pm(self):
+        self.enable_new_clockout_policy_for_fixtures()
+        event=self.event(timestamp='2020-09-02T09:00:00+08:00')
+        self.role(anonymous=True);self.ingest([event]);self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT public.recover_due_attendance()').fetchone()[0],1)
+        auto=self.conn.execute("SELECT id,timestamp AT TIME ZONE 'Asia/Manila',auto_close_source_id FROM public.attendance_logs WHERE is_auto_closed").fetchone()
+        self.assertEqual(auto[1].isoformat(),'2020-09-02T17:00:00')
+        self.assertEqual(str(auto[2]),event['event_id'])
+        self.role(anonymous=True)
+        legacy=self.event(event_id=str(auto[0]),action_type='CLOCK_OUT',timestamp='2020-09-02T21:00:00+08:00',is_auto_closed=True)
+        self.assertEqual(self.ingest([legacy]),1);self.assertEqual(self.ingest([legacy]),1)
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT public.recover_due_attendance()').fetchone()[0],0)
+        self.assertEqual(self.conn.execute("SELECT timestamp AT TIME ZONE 'Asia/Manila' FROM public.attendance_logs WHERE id=%s",(auto[0],)).fetchone()[0],auto[1])
+
+    def test_legacy_uploaded_auto_is_normalized_and_actual_evening_out_supersedes_it(self):
+        self.enable_new_clockout_policy_for_fixtures()
+        source=self.event(timestamp='2020-09-02T09:00:00+08:00')
+        auto_id=str(UUID(hashlib.md5((source['event_id']+':auto-close').encode()).hexdigest()))
+        automatic=self.event(event_id=auto_id,action_type='CLOCK_OUT',timestamp='2020-09-02T21:00:00+08:00',is_auto_closed=True)
+        self.role(anonymous=True);self.ingest([source,automatic])
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute("SELECT timestamp AT TIME ZONE 'Asia/Manila' FROM public.attendance_logs WHERE id=%s",(auto_id,)).fetchone()[0].hour,17)
+        self.role(anonymous=True)
+        actual=self.event(action_type='CLOCK_OUT',timestamp='2020-09-02T19:00:00+08:00')
+        self.ingest([actual]);self.ingest([automatic])
+        self.role(ADMIN)
+        self.assertIsNotNone(self.conn.execute('SELECT deleted_at FROM public.attendance_logs WHERE id=%s',(auto_id,)).fetchone()[0])
+        self.assertEqual(self.conn.execute("SELECT type,timestamp AT TIME ZONE 'Asia/Manila' FROM public.attendance_logs WHERE deleted_at IS NULL ORDER BY timestamp DESC LIMIT 1").fetchone()[1].hour,19)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.attendance_audit WHERE operation='auto_close_superseded'").fetchone()[0],1)
+        self.assertEqual(self.conn.execute('SELECT public.recover_due_attendance()').fetchone()[0],0)
+
+    def test_late_hour_crosses_midnight_and_pending_card_link_keeps_source(self):
+        self.enable_new_clockout_policy_for_fixtures()
+        source=self.event(card_uid='UNKNOWN1',timestamp='2020-09-02T23:30:00+08:00')
+        self.role(anonymous=True);self.ingest([source]);self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT public.recover_due_attendance()').fetchone()[0],1)
+        automatic=self.conn.execute("SELECT id,timestamp AT TIME ZONE 'Asia/Manila',auto_close_source_id FROM public.pending_card_events WHERE is_auto_closed").fetchone()
+        self.assertEqual(automatic[1].isoformat(),'2020-09-03T00:30:00')
+        self.assertEqual(str(automatic[2]),source['event_id'])
+        key=self.conn.execute('SELECT public.save_officer_profile(null,%s,%s,true)',('UNKNOWN1',Jsonb({'first_name':'Late','last_name':'Visitor','position':'Secretary'}))).fetchone()[0]
+        promoted=self.conn.execute('SELECT card_uid,auto_close_source_id FROM public.attendance_logs WHERE id=%s',(automatic[0],)).fetchone()
+        self.assertEqual(promoted,(key,UUID(source['event_id'])))
+        self.assertEqual(self.conn.execute('SELECT public.recover_due_attendance()').fetchone()[0],0)
+
+    def test_early_legacy_auto_is_acknowledged_without_future_hours(self):
+        self.enable_new_clockout_policy_for_fixtures()
+        stamp=self.conn.execute("SELECT ((now() AT TIME ZONE 'Asia/Manila')::date+1+time '20:30') AT TIME ZONE 'Asia/Manila'").fetchone()[0]
+        source=self.event(timestamp=stamp.isoformat())
+        automatic=self.event(event_id=str(UUID(hashlib.md5((source['event_id']+':auto-close').encode()).hexdigest())),action_type='CLOCK_OUT',timestamp=(stamp+timedelta(minutes=30)).isoformat(),is_auto_closed=True)
+        self.role(anonymous=True);self.ingest([source])
+        with self.assertRaises(psycopg.errors.RaiseException),self.conn.transaction():
+            self.ingest([{**automatic,'timestamp':None}])
+        self.assertEqual(self.ingest([automatic]),1)
+        self.assertEqual(self.ingest([automatic]),1)
+        context=self.conn.execute('SELECT public.reader_context(%s,%s,%s)',(DEVICE,TOKEN,Jsonb([automatic['event_id']]))).fetchone()[0]
+        self.assertIn(automatic['event_id'],context['known_event_ids'])
+        self.assertFalse(any(e['id']==automatic['event_id'] for e in context['events']))
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.attendance_logs WHERE is_auto_closed').fetchone()[0],0)
+        self.assertEqual(self.conn.execute('SELECT automatic_clockout_due_at FROM public.attendance_logs WHERE id=%s',(source['event_id'],)).fetchone()[0],stamp+timedelta(hours=1))
+
+    def test_pending_real_out_supersedes_estimate_without_retry_resurrection(self):
+        self.enable_new_clockout_policy_for_fixtures()
+        source=self.event(card_uid='UNKNOWN1',timestamp='2020-09-02T18:00:00+08:00')
+        auto=self.event(card_uid='UNKNOWN1',event_id=str(UUID(hashlib.md5((source['event_id']+':auto-close').encode()).hexdigest())),action_type='CLOCK_OUT',timestamp='2020-09-02T21:00:00+08:00',is_auto_closed=True)
+        self.role(anonymous=True);self.ingest([source,auto])
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute("SELECT timestamp AT TIME ZONE 'Asia/Manila' FROM public.pending_card_events WHERE is_auto_closed").fetchone()[0].hour,19)
+        self.role(anonymous=True)
+        self.ingest([self.event(card_uid='UNKNOWN1',action_type='CLOCK_OUT',timestamp='2020-09-02T18:45:00+08:00')]);self.ingest([auto])
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events WHERE is_auto_closed').fetchone()[0],0)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM public.pending_card_events').fetchone()[0],2)
+
+    def test_policy_does_not_overwrite_admin_corrections_and_private_functions_stay_private(self):
+        self.enable_new_clockout_policy_for_fixtures()
+        source=self.event(timestamp='2020-09-02T09:00:00+08:00')
+        self.role(anonymous=True);self.ingest([source]);self.role(ADMIN)
+        self.conn.execute('SELECT public.recover_due_attendance()')
+        automatic=self.conn.execute('SELECT id FROM public.attendance_logs WHERE is_auto_closed').fetchone()[0]
+        self.conn.execute("SELECT public.correct_attendance(%s,'AAAA1111','CLOCK_OUT','2020-09-02T18:00:00+08:00',true,'Verified office work')",(automatic,))
+        self.role(anonymous=True)
+        self.ingest([self.event(event_id=str(automatic),action_type='CLOCK_OUT',timestamp='2020-09-02T21:00:00+08:00',is_auto_closed=True)])
+        self.role(ADMIN)
+        self.assertEqual(self.conn.execute("SELECT timestamp AT TIME ZONE 'Asia/Manila',manually_edited FROM public.attendance_logs WHERE id=%s",(automatic,)).fetchone(),(datetime(2020,9,2,18),True))
+        self.role(OFFICER)
+        for query in ["SELECT * FROM public.automatic_clockout_times(now())","SELECT public.reconcile_automatic_clockouts()","SELECT * FROM public.automatic_clockout_receipts", "SELECT public.ingest_attendance_before_clockout_policy(null,'','[]')"]:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():self.conn.execute(query)
 
     def test_cloud_auto_close_for_manual_clock_in_can_be_acknowledged_by_reader(self):
         self.role(ADMIN)
