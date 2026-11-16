@@ -647,6 +647,45 @@ class DatabaseTests(unittest.TestCase):
         with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
             self.conn.execute('SELECT public.reader_context_before_policy_cache(%s,%s)',(DEVICE,TOKEN))
 
+    def test_targeted_policy_correction_keeps_real_edited_deleted_and_other_dates(self):
+        before_policy=self.conn.execute("SELECT data FROM public.system_settings WHERE id='automatic_clockout_policy'").fetchone()[0]
+        expected={}
+        for uid,day,clock_in,manual,deleted,real_out in [
+            ('AAAA1111','2020-09-02','13:19:22',False,False,None),
+            ('BBBB2222','2020-09-02','18:30:00',False,False,None),
+            ('CCCC3333','2020-09-02','14:00:00',True,False,None),
+            ('DDDD4444','2020-09-02','14:00:00',False,False,'18:30:00'),
+            ('ABCD9999','2020-09-02','14:00:00',False,False,'23:00:00'),
+            ('EEEE5555','2020-09-01','14:00:00',False,False,None),
+            ('FFFF6666','2020-09-02','14:00:00',False,True,None),
+            ('ABCD7777','2020-09-02','20:00:00',False,False,None)]:
+            if uid!='AAAA1111':self.conn.execute("INSERT INTO public.officers(card_uid,first_name,last_name,position) VALUES (%s,'Example','Officer','Secretary')",(uid,))
+            source=uuid4();auto=UUID(hashlib.md5((str(source)+':auto-close').encode()).hexdigest())
+            self.conn.execute("INSERT INTO public.attendance_logs(id,card_uid,officer_name,type,timestamp,device_id) VALUES (%s,%s,'Example Officer','CLOCK_IN',%s,%s)",(source,uid,day+'T'+clock_in+'+08:00',DEVICE))
+            self.conn.execute("INSERT INTO public.attendance_logs(id,card_uid,officer_name,type,timestamp,is_auto_closed,manually_edited,deleted_at,device_id) VALUES (%s,%s,'Example Officer','CLOCK_OUT',%s,true,%s,CASE WHEN %s THEN now() END,%s)",(auto,uid,day+'T21:00:00+08:00',manual,deleted,DEVICE))
+            if real_out:self.conn.execute("INSERT INTO public.attendance_logs(card_uid,officer_name,type,timestamp) VALUES (%s,'Example Officer','CLOCK_OUT',%s)",(uid,day+'T'+real_out+'+08:00'))
+            expected[uid]=(auto,17 if uid=='AAAA1111' else 19 if uid=='BBBB2222' else 21)
+        pending_source=uuid4();pending_auto=UUID(hashlib.md5((str(pending_source)+':auto-close').encode()).hexdigest())
+        self.conn.execute("INSERT INTO public.pending_card_events(id,card_uid,type,timestamp,is_auto_closed,device_id) VALUES (%s,'UNKNOWN1','CLOCK_IN','2020-09-02T14:00:00+08:00',false,%s),(%s,'UNKNOWN1','CLOCK_OUT','2020-09-02T21:00:00+08:00',true,%s)",(pending_source,DEVICE,pending_auto,DEVICE))
+        correction=(Path(__file__).resolve().parents[1]/'supabase/maintenance/20261116_correct_automatic_clockouts.sql').read_text(encoding='utf-8')
+        # Keep the fixture isolated inside setUp/tearDown's rollback transaction.
+        correction=correction.replace("date '2026-11-16'","date '2020-09-02'").replace('\nBEGIN;','').replace('\nCOMMIT;','')
+        self.conn.execute(correction)
+        for uid,(event_id,hour) in expected.items():
+            row=self.conn.execute("SELECT timestamp AT TIME ZONE 'Asia/Manila' FROM public.attendance_logs WHERE id=%s",(event_id,)).fetchone()[0]
+            self.assertEqual(row.hour,hour,uid)
+        self.assertEqual(self.conn.execute("SELECT timestamp AT TIME ZONE 'Asia/Manila' FROM public.pending_card_events WHERE id=%s",(pending_auto,)).fetchone()[0].hour,17)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.attendance_audit WHERE operation='policy_backfill'").fetchone()[0],2)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM attendance_maintenance.clockout_corrections').fetchone()[0],3)
+        self.assertEqual(self.conn.execute("SELECT data FROM public.system_settings WHERE id='automatic_clockout_policy'").fetchone()[0],before_policy)
+        self.conn.execute('DROP TABLE pg_temp.clockout_correction_candidates')
+        self.conn.execute(correction)
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM clockout_correction_candidates').fetchone()[0],0)
+        self.role(anonymous=True)
+        self.ingest([self.event(event_id=str(expected['AAAA1111'][0]),action_type='CLOCK_OUT',timestamp='2020-09-02T21:00:00+08:00',is_auto_closed=True)])
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege),self.conn.transaction():
+            self.conn.execute('SELECT * FROM attendance_maintenance.clockout_corrections')
+
     def test_real_overnight_out_is_linked_to_its_source_and_never_deleted_as_an_estimate(self):
         self.enable_new_clockout_policy_for_fixtures()
         for card in ['AAAA1111','UNKNOWN1']:
